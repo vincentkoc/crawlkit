@@ -36,10 +36,14 @@ type ImportOptions struct {
 	DB           *sql.DB
 	RootDir      string
 	DeleteTables []string
+	DeleteTable  DeleteFunc
+	BeforeImport func(context.Context, *sql.Tx) error
 	AfterImport  func(context.Context, *sql.Tx) error
 }
 
 type RowFilter func(table string, row map[string]any) (bool, error)
+
+type DeleteFunc func(ctx context.Context, tx *sql.Tx, table string) error
 
 type Sidecar struct {
 	Name string `json:"name"`
@@ -133,9 +137,20 @@ func Import(ctx context.Context, opts ImportOptions) (Manifest, error) {
 			_ = tx.Rollback()
 		}
 	}()
+	if opts.BeforeImport != nil {
+		if err := opts.BeforeImport(ctx, tx); err != nil {
+			return Manifest{}, err
+		}
+	}
 	for i := len(deleteTables) - 1; i >= 0; i-- {
 		table := strings.TrimSpace(deleteTables[i])
 		if table == "" {
+			continue
+		}
+		if opts.DeleteTable != nil {
+			if err := opts.DeleteTable(ctx, tx, table); err != nil {
+				return Manifest{}, err
+			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, "delete from "+sqlitekit.QuoteIdent(table)); err != nil {

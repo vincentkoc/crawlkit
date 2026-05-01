@@ -94,6 +94,54 @@ func TestExportRotatesShards(t *testing.T) {
 	}
 }
 
+func TestImportHooks(t *testing.T) {
+	ctx := context.Background()
+	src, err := sqlitekit.Open(ctx, sqlitekit.Options{
+		Path:   filepath.Join(t.TempDir(), "src.db"),
+		Schema: `create table things(id text primary key, keep integer not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	mustExec(t, src.DB(), `insert into things(id, keep) values('new', 1)`)
+	root := t.TempDir()
+	if _, err := Export(ctx, ExportOptions{DB: src.DB(), RootDir: root, Tables: []string{"things"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := sqlitekit.Open(ctx, sqlitekit.Options{
+		Path:   filepath.Join(t.TempDir(), "dst.db"),
+		Schema: `create table things(id text primary key, keep integer not null); create table audit(event text not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	mustExec(t, dst.DB(), `insert into things(id, keep) values('local', 0)`)
+	if _, err := Import(ctx, ImportOptions{
+		DB:      dst.DB(),
+		RootDir: root,
+		BeforeImport: func(ctx context.Context, tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `insert into audit(event) values('before')`)
+			return err
+		},
+		DeleteTable: func(ctx context.Context, tx *sql.Tx, table string) error {
+			_, err := tx.ExecContext(ctx, `delete from `+sqlitekit.QuoteIdent(table)+` where keep != 0`)
+			return err
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := dst.DB().QueryRowContext(ctx, `select count(*) from things where id = 'local'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("custom delete hook removed local row")
+	}
+}
+
 func mustExec(t *testing.T, db *sql.DB, query string) {
 	t.Helper()
 	if _, err := db.Exec(query); err != nil {
