@@ -17,8 +17,8 @@ jobs:
     name: analyze
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -26,4 +26,3 @@ jobs:
         with:
           languages: go
       - uses: github/codeql-action/analyze@v4
-

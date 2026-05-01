@@ -12,8 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -21,4 +21,3 @@ jobs:
       - run: git diff --exit-code -- go.mod go.sum
       - run: go vet ./...
       - run: go test ./...
-
