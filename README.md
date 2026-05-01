@@ -10,7 +10,7 @@ CLI output helpers, and safe desktop-cache snapshot utilities.
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.1.0
+go get github.com/vincentkoc/crawlkit@v0.2.0
 ```
 
 Go packages are published by tagging this repository. There is no separate
@@ -24,6 +24,7 @@ package registry step. See `docs/publishing.md` for the release commands.
 - `gitshare`: clone/init/pull/commit/push helpers for private snapshot repos.
 - `syncstate`: generic crawler cursor and freshness records.
 - `cliout`: text/json/log output helpers.
+- `termkit`: shared terminal archive browser for message/page style rows.
 - `desktopcache`: safe read-only local cache snapshot helpers.
 
 ## Safety
