@@ -57,6 +57,7 @@ type Manifest struct {
 
 type TableManifest struct {
 	Name    string   `json:"name"`
+	File    string   `json:"file,omitempty"`
 	Files   []string `json:"files"`
 	Columns []string `json:"columns"`
 	Rows    int      `json:"rows"`
