@@ -1,4 +1,4 @@
-package gitshare
+package mirror
 
 import (
 	"context"

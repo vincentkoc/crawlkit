@@ -1,4 +1,4 @@
-package sqlitekit
+package store
 
 import (
 	"context"

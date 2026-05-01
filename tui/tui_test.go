@@ -1,4 +1,4 @@
-package termkit
+package tui
 
 import (
 	"strings"

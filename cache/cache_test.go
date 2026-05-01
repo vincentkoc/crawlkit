@@ -1,4 +1,4 @@
-package desktopcache
+package cache
 
 import (
 	"os"

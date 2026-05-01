@@ -1,4 +1,4 @@
-package pack
+package snapshot
 
 import (
 	"context"
@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vincentkoc/crawlkit/sqlitekit"
+	"github.com/vincentkoc/crawlkit/store"
 )
 
 func TestExportImportTablesWithFilter(t *testing.T) {
 	ctx := context.Background()
-	src, err := sqlitekit.Open(ctx, sqlitekit.Options{
+	src, err := store.Open(ctx, store.Options{
 		Path: filepath.Join(t.TempDir(), "src.db"),
 		Schema: `
 create table messages(id text primary key, guild_id text not null, body text not null);
@@ -44,7 +44,7 @@ create table sync_state(source_name text, entity_type text, entity_id text, valu
 		t.Fatalf("manifest = %+v", manifest)
 	}
 
-	dst, err := sqlitekit.Open(ctx, sqlitekit.Options{
+	dst, err := store.Open(ctx, store.Options{
 		Path: filepath.Join(t.TempDir(), "dst.db"),
 		Schema: `
 create table messages(id text primary key, guild_id text not null, body text not null);
@@ -69,7 +69,7 @@ create table sync_state(source_name text, entity_type text, entity_id text, valu
 
 func TestExportRotatesShards(t *testing.T) {
 	ctx := context.Background()
-	src, err := sqlitekit.Open(ctx, sqlitekit.Options{
+	src, err := store.Open(ctx, store.Options{
 		Path:   filepath.Join(t.TempDir(), "src.db"),
 		Schema: `create table things(id integer primary key, value text not null);`,
 	})
@@ -96,7 +96,7 @@ func TestExportRotatesShards(t *testing.T) {
 
 func TestImportHooks(t *testing.T) {
 	ctx := context.Background()
-	src, err := sqlitekit.Open(ctx, sqlitekit.Options{
+	src, err := store.Open(ctx, store.Options{
 		Path:   filepath.Join(t.TempDir(), "src.db"),
 		Schema: `create table things(id text primary key, keep integer not null);`,
 	})
@@ -110,7 +110,7 @@ func TestImportHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dst, err := sqlitekit.Open(ctx, sqlitekit.Options{
+	dst, err := store.Open(ctx, store.Options{
 		Path:   filepath.Join(t.TempDir(), "dst.db"),
 		Schema: `create table things(id text primary key, keep integer not null); create table audit(event text not null);`,
 	})
@@ -127,7 +127,7 @@ func TestImportHooks(t *testing.T) {
 			return err
 		},
 		DeleteTable: func(ctx context.Context, tx *sql.Tx, table string) error {
-			_, err := tx.ExecContext(ctx, `delete from `+sqlitekit.QuoteIdent(table)+` where keep != 0`)
+			_, err := tx.ExecContext(ctx, `delete from `+store.QuoteIdent(table)+` where keep != 0`)
 			return err
 		},
 	}); err != nil {

@@ -1,4 +1,4 @@
-package configkit
+package config
 
 import (
 	"errors"

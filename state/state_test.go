@@ -1,4 +1,4 @@
-package syncstate
+package state
 
 import (
 	"context"

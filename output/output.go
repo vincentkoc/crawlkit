@@ -1,4 +1,4 @@
-package cliout
+package output
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package pack
+package snapshot
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vincentkoc/crawlkit/sqlitekit"
+	"github.com/vincentkoc/crawlkit/store"
 )
 
 const ManifestName = "manifest.json"
@@ -153,7 +153,7 @@ func Import(ctx context.Context, opts ImportOptions) (Manifest, error) {
 			}
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, "delete from "+sqlitekit.QuoteIdent(table)); err != nil {
+		if _, err := tx.ExecContext(ctx, "delete from "+store.QuoteIdent(table)); err != nil {
 			return Manifest{}, fmt.Errorf("clear table %s: %w", table, err)
 		}
 	}
@@ -205,7 +205,7 @@ func WriteManifest(rootDir string, manifest Manifest) error {
 }
 
 func exportTable(ctx context.Context, db *sql.DB, rootDir, table string, maxShardBytes int64, filter RowFilter) (TableManifest, error) {
-	rows, err := db.QueryContext(ctx, "select * from "+sqlitekit.QuoteIdent(table))
+	rows, err := db.QueryContext(ctx, "select * from "+store.QuoteIdent(table))
 	if err != nil {
 		return TableManifest{}, fmt.Errorf("query table %s: %w", table, err)
 	}
@@ -324,13 +324,13 @@ func insertRow(ctx context.Context, tx *sql.Tx, table string, row map[string]any
 	holders := make([]string, 0, len(cols))
 	args := make([]any, 0, len(cols))
 	for _, col := range cols {
-		quoted = append(quoted, sqlitekit.QuoteIdent(col))
+		quoted = append(quoted, store.QuoteIdent(col))
 		holders = append(holders, "?")
 		args = append(args, row[col])
 	}
 	stmt := fmt.Sprintf(
 		"insert or replace into %s(%s) values(%s)",
-		sqlitekit.QuoteIdent(table),
+		store.QuoteIdent(table),
 		strings.Join(quoted, ","),
 		strings.Join(holders, ","),
 	)
