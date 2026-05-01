@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,12 +23,100 @@ type Item struct {
 	Tags     []string `json:"tags,omitempty"`
 }
 
+type Row struct {
+	Source    string            `json:"source,omitempty"`
+	Kind      string            `json:"kind"`
+	ID        string            `json:"id,omitempty"`
+	ParentID  string            `json:"parent_id,omitempty"`
+	Scope     string            `json:"scope,omitempty"`
+	Container string            `json:"container,omitempty"`
+	Author    string            `json:"author,omitempty"`
+	Title     string            `json:"title"`
+	Text      string            `json:"text,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	CreatedAt string            `json:"created_at,omitempty"`
+	UpdatedAt string            `json:"updated_at,omitempty"`
+	Tags      []string          `json:"tags,omitempty"`
+	Fields    map[string]string `json:"fields,omitempty"`
+}
+
 type Options struct {
 	Title        string
 	EmptyMessage string
 	Items        []Item
 	Stdin        io.Reader
 	Stdout       io.Writer
+}
+
+type BrowseOptions struct {
+	AppName      string
+	Title        string
+	EmptyMessage string
+	Rows         []Row
+	JSON         bool
+	Stdin        io.Reader
+	Stdout       io.Writer
+}
+
+func Browse(ctx context.Context, opts BrowseOptions) error {
+	if opts.Stdout == nil {
+		opts.Stdout = os.Stdout
+	}
+	if opts.JSON {
+		enc := json.NewEncoder(opts.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(opts.Rows)
+	}
+	items := make([]Item, 0, len(opts.Rows))
+	for _, row := range opts.Rows {
+		items = append(items, row.Item())
+	}
+	title := strings.TrimSpace(opts.Title)
+	if title == "" {
+		title = strings.TrimSpace(opts.AppName)
+		if title != "" {
+			title += " archive"
+		}
+	}
+	if title == "" {
+		title = "archive"
+	}
+	empty := strings.TrimSpace(opts.EmptyMessage)
+	if empty == "" && strings.TrimSpace(opts.AppName) != "" {
+		empty = opts.AppName + " has no local archive rows yet"
+	}
+	err := Run(ctx, Options{
+		Title:        title,
+		EmptyMessage: empty,
+		Items:        items,
+		Stdin:        opts.Stdin,
+		Stdout:       opts.Stdout,
+	})
+	if err != nil && errors.Is(err, ErrNotTerminal) {
+		app := strings.TrimSpace(opts.AppName)
+		if app == "" {
+			return fmt.Errorf("%w; run tui from a TTY or pass --json", err)
+		}
+		return fmt.Errorf("%w; run %s tui from a TTY or pass --json", err, app)
+	}
+	return err
+}
+
+func (r Row) Item() Item {
+	title := firstNonEmpty(r.Title, r.Text, r.ID, "(untitled)")
+	tags := append([]string(nil), r.Tags...)
+	if r.Kind != "" {
+		tags = append([]string{r.Kind}, tags...)
+	}
+	if r.Source != "" {
+		tags = append([]string{r.Source}, tags...)
+	}
+	return Item{
+		Title:    title,
+		Subtitle: r.subtitle(),
+		Detail:   r.detail(),
+		Tags:     tags,
+	}
 }
 
 func Run(ctx context.Context, opts Options) error {
@@ -62,6 +152,68 @@ func Run(ctx context.Context, opts Options) error {
 	)
 	_, err := program.Run()
 	return err
+}
+
+func (r Row) subtitle() string {
+	parts := []string{r.Scope, r.Container, r.Author, r.CreatedAt, r.UpdatedAt}
+	var out []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, "  ")
+}
+
+func (r Row) detail() string {
+	var lines []string
+	if text := strings.TrimSpace(r.Text); text != "" && text != strings.TrimSpace(r.Title) {
+		lines = append(lines, text)
+	}
+	for _, line := range []string{
+		fieldLine("id", r.ID),
+		fieldLine("parent", r.ParentID),
+		fieldLine("scope", r.Scope),
+		fieldLine("container", r.Container),
+		fieldLine("author", r.Author),
+		fieldLine("url", r.URL),
+	} {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(r.Fields) > 0 {
+		keys := make([]string, 0, len(r.Fields))
+		for key := range r.Fields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if line := fieldLine(key, r.Fields[key]); line != "" {
+				lines = append(lines, line)
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func fieldLine(key, value string) string {
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" || value == "" {
+		return ""
+	}
+	return key + "=" + value
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 type model struct {
