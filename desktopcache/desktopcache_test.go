@@ -1,0 +1,50 @@
+package desktopcache
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestSnapshotFileCopiesReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	if err := os.WriteFile(source, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := SnapshotFile(SnapshotOptions{
+		SourcePath: source,
+		CacheDir:   filepath.Join(dir, "cache"),
+		Now:        func() time.Time { return time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(snap.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "data" {
+		t.Fatalf("snapshot data = %q", string(data))
+	}
+	info, err := os.Stat(snap.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("mode = %o", got)
+	}
+}
+
+func TestSnapshotFileSizeGuard(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source.db")
+	if err := os.WriteFile(source, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := SnapshotFile(SnapshotOptions{SourcePath: source, CacheDir: filepath.Join(dir, "cache"), MaxFileBytes: 1})
+	if err == nil {
+		t.Fatal("expected size guard error")
+	}
+}
