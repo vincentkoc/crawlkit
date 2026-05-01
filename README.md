@@ -14,7 +14,7 @@ go get github.com/vincentkoc/crawlkit@v0.1.0
 ```
 
 Go packages are published by tagging this repository. There is no separate
-package registry step.
+package registry step. See `docs/publishing.md` for the release commands.
 
 ## Packages
 
@@ -30,4 +30,3 @@ package registry step.
 
 Library tests use temporary directories. They do not touch app runtime stores
 such as `~/.config/gitcrawl`, `~/.slacrawl`, `~/.discrawl`, or `~/.notcrawl`.
-
