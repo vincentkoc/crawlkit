@@ -10,7 +10,7 @@ CLI output helpers, and safe desktop-cache snapshot utilities.
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.2.0
+go get github.com/vincentkoc/crawlkit@v0.3.0
 ```
 
 Go packages are published by tagging this repository. There is no separate
@@ -18,14 +18,14 @@ package registry step. See `docs/publishing.md` for the release commands.
 
 ## Packages
 
-- `configkit`: standard TOML config paths, runtime dirs, and token diagnostics.
-- `sqlitekit`: SQLite open/read-only/transaction/query helpers.
-- `pack`: `manifest.json` plus JSONL/Gzip table snapshot export and import.
-- `gitshare`: clone/init/pull/commit/push helpers for private snapshot repos.
-- `syncstate`: generic crawler cursor and freshness records.
-- `cliout`: text/json/log output helpers.
-- `termkit`: shared terminal archive browser for message/page style rows.
-- `desktopcache`: safe read-only local cache snapshot helpers.
+- `config`: standard TOML config paths, runtime dirs, and token diagnostics.
+- `store`: SQLite open/read-only/transaction/query helpers.
+- `snapshot`: `manifest.json` plus JSONL/Gzip table snapshot export and import.
+- `mirror`: clone/init/pull/commit/push helpers for private snapshot repos.
+- `state`: generic crawler cursor and freshness records.
+- `output`: text/json/log output helpers.
+- `tui`: shared terminal archive browser for message/page style rows.
+- `cache`: safe read-only local cache snapshot helpers.
 
 ## Safety
 
