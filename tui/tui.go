@@ -21,13 +21,24 @@ type Item struct {
 	Subtitle string   `json:"subtitle,omitempty"`
 	Detail   string   `json:"detail,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+	Depth    int      `json:"depth,omitempty"`
 }
+
+type LayoutPreset string
+
+const (
+	LayoutAuto     LayoutPreset = ""
+	LayoutList     LayoutPreset = "list"
+	LayoutChat     LayoutPreset = "chat"
+	LayoutDocument LayoutPreset = "document"
+)
 
 type Row struct {
 	Source    string            `json:"source,omitempty"`
 	Kind      string            `json:"kind"`
 	ID        string            `json:"id,omitempty"`
 	ParentID  string            `json:"parent_id,omitempty"`
+	Depth     int               `json:"depth,omitempty"`
 	Scope     string            `json:"scope,omitempty"`
 	Container string            `json:"container,omitempty"`
 	Author    string            `json:"author,omitempty"`
@@ -54,6 +65,7 @@ type BrowseOptions struct {
 	EmptyMessage string
 	Rows         []Row
 	JSON         bool
+	Layout       LayoutPreset
 	Stdin        io.Reader
 	Stdout       io.Writer
 }
@@ -68,8 +80,12 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		return enc.Encode(opts.Rows)
 	}
 	items := make([]Item, 0, len(opts.Rows))
+	layout := opts.Layout
+	if layout == LayoutAuto {
+		layout = inferLayout(opts.Rows)
+	}
 	for _, row := range opts.Rows {
-		items = append(items, row.Item())
+		items = append(items, row.ItemForLayout(layout))
 	}
 	title := strings.TrimSpace(opts.Title)
 	if title == "" {
@@ -103,6 +119,13 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 }
 
 func (r Row) Item() Item {
+	return r.ItemForLayout(LayoutAuto)
+}
+
+func (r Row) ItemForLayout(layout LayoutPreset) Item {
+	if layout == LayoutAuto {
+		layout = inferLayout([]Row{r})
+	}
 	title := firstNonEmpty(r.Title, r.Text, r.ID, "(untitled)")
 	tags := append([]string(nil), r.Tags...)
 	if r.Kind != "" {
@@ -111,11 +134,16 @@ func (r Row) Item() Item {
 	if r.Source != "" {
 		tags = append([]string{r.Source}, tags...)
 	}
+	depth := r.Depth
+	if depth == 0 && layout == LayoutChat && strings.TrimSpace(r.ParentID) != "" {
+		depth = 1
+	}
 	return Item{
 		Title:    title,
-		Subtitle: r.subtitle(),
-		Detail:   r.detail(),
+		Subtitle: r.subtitleForLayout(layout),
+		Detail:   r.detailForLayout(layout),
 		Tags:     tags,
+		Depth:    depth,
 	}
 }
 
@@ -154,8 +182,32 @@ func Run(ctx context.Context, opts Options) error {
 	return err
 }
 
-func (r Row) subtitle() string {
+func inferLayout(rows []Row) LayoutPreset {
+	for _, row := range rows {
+		switch strings.ToLower(strings.TrimSpace(row.Kind)) {
+		case "message", "thread", "reply":
+			return LayoutChat
+		case "page", "database", "block", "collection":
+			return LayoutDocument
+		}
+	}
+	return LayoutList
+}
+
+func (r Row) subtitleForLayout(layout LayoutPreset) string {
+	if layout == LayoutChat {
+		parts := []string{r.Container, r.Author, r.CreatedAt, r.UpdatedAt}
+		return joinNonEmpty(parts, "  ")
+	}
+	if layout == LayoutDocument {
+		parts := []string{r.Kind, r.Scope, r.Container, r.UpdatedAt, r.CreatedAt}
+		return joinNonEmpty(parts, "  ")
+	}
 	parts := []string{r.Scope, r.Container, r.Author, r.CreatedAt, r.UpdatedAt}
+	return joinNonEmpty(parts, "  ")
+}
+
+func joinNonEmpty(parts []string, sep string) string {
 	var out []string
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
@@ -163,13 +215,16 @@ func (r Row) subtitle() string {
 			out = append(out, part)
 		}
 	}
-	return strings.Join(out, "  ")
+	return strings.Join(out, sep)
 }
 
-func (r Row) detail() string {
+func (r Row) detailForLayout(layout LayoutPreset) string {
 	var lines []string
 	if text := strings.TrimSpace(r.Text); text != "" && text != strings.TrimSpace(r.Title) {
 		lines = append(lines, text)
+	}
+	if layout == LayoutDocument && strings.TrimSpace(r.URL) != "" {
+		lines = append(lines, fieldLine("url", r.URL))
 	}
 	for _, line := range []string{
 		fieldLine("id", r.ID),
@@ -177,9 +232,13 @@ func (r Row) detail() string {
 		fieldLine("scope", r.Scope),
 		fieldLine("container", r.Container),
 		fieldLine("author", r.Author),
-		fieldLine("url", r.URL),
 	} {
 		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if layout != LayoutDocument {
+		if line := fieldLine("url", r.URL); line != "" {
 			lines = append(lines, line)
 		}
 	}
@@ -351,6 +410,9 @@ func (m model) View() string {
 			b.WriteString("  ")
 		}
 		line := item.Title
+		if item.Depth > 0 {
+			line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
+		}
 		if item.Subtitle != "" {
 			line += "  " + ansiDim + item.Subtitle + ansiReset
 			if selected {

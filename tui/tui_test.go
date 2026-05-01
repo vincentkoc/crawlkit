@@ -45,7 +45,7 @@ func TestRowItemUsesSharedArchiveShape(t *testing.T) {
 		Title:     "panic locked database",
 		Text:      "full message text",
 		Fields:    map[string]string{"reply_to": "m0"},
-	}.Item()
+	}.ItemForLayout(LayoutList)
 	if item.Title != "panic locked database" {
 		t.Fatalf("title = %q", item.Title)
 	}
@@ -57,6 +57,41 @@ func TestRowItemUsesSharedArchiveShape(t *testing.T) {
 	}
 	if len(item.Tags) < 2 || item.Tags[0] != "discord" || item.Tags[1] != "message" {
 		t.Fatalf("tags = %#v", item.Tags)
+	}
+}
+
+func TestChatLayoutIndentsReplyRows(t *testing.T) {
+	item := Row{
+		Source:    "discord",
+		Kind:      "message",
+		ID:        "m2",
+		ParentID:  "m1",
+		Container: "general",
+		Author:    "sam",
+		Title:     "reply",
+	}.ItemForLayout(LayoutChat)
+	if item.Depth != 1 {
+		t.Fatalf("depth = %d", item.Depth)
+	}
+	if strings.Contains(item.Subtitle, "discord") {
+		t.Fatalf("chat subtitle should prioritize chat context, got %q", item.Subtitle)
+	}
+}
+
+func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
+	item := Row{
+		Source:    "notion",
+		Kind:      "page",
+		ID:        "page1",
+		Title:     "Launch plan",
+		URL:       "https://example.com/launch",
+		UpdatedAt: "2026-05-01T12:00:00Z",
+	}.ItemForLayout(LayoutDocument)
+	if !strings.HasPrefix(item.Detail, "url=https://example.com/launch") {
+		t.Fatalf("detail = %q", item.Detail)
+	}
+	if !strings.Contains(item.Subtitle, "page") || !strings.Contains(item.Subtitle, "2026-05-01") {
+		t.Fatalf("subtitle = %q", item.Subtitle)
 	}
 }
 
