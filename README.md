@@ -11,7 +11,7 @@ utilities.
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.3.9
+go get github.com/vincentkoc/crawlkit@v0.3.10
 ```
 
 Go packages are published by tagging this repository. There is no separate
@@ -25,7 +25,7 @@ package registry step. See `docs/publishing.md` for the release commands.
 - `mirror`: clone/init/pull/commit/push helpers for private snapshot repos.
 - `state`: generic crawler cursor and freshness records.
 - `output`: text/json/log output helpers.
-- `tui`: shared terminal archive explorer with compact rows, context/detail panes, mouse selection, right-click actions, sorting/filtering, and local/remote source status.
+- `tui`: shared terminal archive explorer with gitcrawl-style responsive panes, compact row headers, mouse selection, floating right-click actions, sorting/filtering, and local/remote source status.
 - `cache`: safe read-only local cache snapshot helpers.
 
 ## Safety
