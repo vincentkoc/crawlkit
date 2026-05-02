@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/mattn/go-isatty"
 )
 
@@ -373,66 +375,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	var b strings.Builder
 	width := maxInt(m.width, 40)
-	b.WriteString(ansiBold)
-	b.WriteString(truncate(m.title, width))
-	b.WriteString(ansiReset)
+	b.WriteString(titleStyle(width).Render(truncateCells(m.title, width)))
 	b.WriteByte('\n')
-	b.WriteString(ansiDim)
-	b.WriteString(fmt.Sprintf("%d rows", len(m.filtered)))
+	status := fmt.Sprintf("%d rows", len(m.filtered))
 	if m.query != "" {
-		b.WriteString(" filtered by ")
-		b.WriteString(strconvQuote(m.query))
+		status += " filtered by " + strconvQuote(m.query)
 	}
-	b.WriteString("  j/k move  / filter  enter details  q quit")
-	b.WriteString(ansiReset)
+	status += "  j/k move  / filter  enter details  q quit"
+	b.WriteString(mutedStyle(width).Render(truncateCells(status, width)))
 	b.WriteByte('\n')
 	if m.filterMode {
-		b.WriteString(ansiCyan)
-		b.WriteString("filter> ")
-		b.WriteString(ansiReset)
-		b.WriteString(m.query)
+		b.WriteString(accentStyle().Render("filter> "))
+		b.WriteString(truncateCells(m.query, maxInt(1, width-8)))
 		b.WriteByte('\n')
 	}
-	b.WriteString(strings.Repeat("-", minInt(width, 120)))
+	b.WriteString(separator(width))
 	b.WriteByte('\n')
 	if len(m.filtered) == 0 {
-		b.WriteString("no rows match")
+		b.WriteString(mutedStyle(width).Render("no rows match"))
 		return b.String()
 	}
 	rows := m.visibleRows()
 	for _, index := range rows {
 		item := m.items[m.filtered[index]]
 		selected := index == m.selected
+		prefix := "  "
 		if selected {
-			b.WriteString(ansiReverse)
-			b.WriteString("> ")
-		} else {
-			b.WriteString("  ")
+			prefix = "> "
 		}
 		line := item.Title
 		if item.Depth > 0 {
 			line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
 		}
 		if item.Subtitle != "" {
-			line += "  " + ansiDim + item.Subtitle + ansiReset
-			if selected {
-				line += ansiReverse
-			}
+			line += "  " + item.Subtitle
 		}
-		b.WriteString(truncate(line, width))
-		if selected {
-			b.WriteString(ansiReset)
-		}
+		line = truncateCells(prefix+line, width)
+		style := rowStyle(width, selected)
+		b.WriteString(style.Render(line))
 		b.WriteByte('\n')
 	}
 	if m.showDetails {
-		b.WriteString(strings.Repeat("-", minInt(width, 120)))
+		b.WriteString(separator(width))
 		b.WriteByte('\n')
 		item := m.items[m.filtered[m.selected]]
 		if len(item.Tags) > 0 {
-			b.WriteString(ansiCyan)
-			b.WriteString(strings.Join(item.Tags, "  "))
-			b.WriteString(ansiReset)
+			b.WriteString(tagStyle(width).Render(truncateCells(strings.Join(item.Tags, "  "), width)))
 			b.WriteByte('\n')
 		}
 		detail := strings.TrimSpace(item.Detail)
@@ -502,11 +490,62 @@ func (m model) visibleRows() []int {
 	return out
 }
 
-func truncate(value string, width int) string {
-	if width <= 1 || len(value) <= width {
+func titleStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#f8fafc")).
+		Background(lipgloss.Color("#172033")).
+		Width(width)
+}
+
+func mutedStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#8f9aaa")).
+		Width(width)
+}
+
+func accentStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7fb4d8"))
+}
+
+func tagStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#7fb4d8")).
+		Width(width)
+}
+
+func rowStyle(width int, selected bool) lipgloss.Style {
+	style := lipgloss.NewStyle().Width(width)
+	if selected {
+		return style.
+			Foreground(lipgloss.Color("#f8fafc")).
+			Background(lipgloss.Color("#2f3f56"))
+	}
+	return style.Foreground(lipgloss.Color("#d7dee8"))
+}
+
+func separator(width int) string {
+	return lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#475569")).
+		Width(width).
+		Render(strings.Repeat("-", minInt(width, 120)))
+}
+
+func truncateCells(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) <= width {
 		return value
 	}
-	return value[:maxInt(width-3, 0)] + "..."
+	if width <= 3 {
+		return strings.Repeat(".", width)
+	}
+	runes := []rune(value)
+	for len(runes) > 0 && lipgloss.Width(string(runes))+3 > width {
+		runes = runes[:len(runes)-1]
+	}
+	return string(runes) + "..."
 }
 
 func wrap(value string, width int) string {
@@ -514,18 +553,22 @@ func wrap(value string, width int) string {
 	if value == "" {
 		return ""
 	}
-	if width <= 0 || len(value) <= width {
+	if width <= 0 || lipgloss.Width(value) <= width {
 		return value
 	}
 	var b strings.Builder
-	for len(value) > width {
-		cut := strings.LastIndex(value[:width], " ")
-		if cut <= 0 {
-			cut = width
+	for lipgloss.Width(value) > width {
+		line := ansi.Cut(value, 0, width)
+		cut := strings.LastIndex(line, " ")
+		if cut > 0 {
+			line = strings.TrimRight(line[:cut], " ")
 		}
-		b.WriteString(value[:cut])
+		if line == "" {
+			line = ansi.Cut(value, 0, width)
+		}
+		b.WriteString(line)
 		b.WriteByte('\n')
-		value = strings.TrimSpace(value[cut:])
+		value = strings.TrimSpace(strings.TrimPrefix(value, line))
 	}
 	b.WriteString(value)
 	return b.String()
@@ -558,11 +601,3 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-
-const (
-	ansiReset   = "\033[0m"
-	ansiBold    = "\033[1m"
-	ansiDim     = "\033[2m"
-	ansiCyan    = "\033[36m"
-	ansiReverse = "\033[7m"
-)

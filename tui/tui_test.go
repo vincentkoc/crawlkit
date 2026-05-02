@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -114,6 +115,28 @@ func TestModelFilterAndRender(t *testing.T) {
 	}
 	if strings.Contains(view, "Invoices") {
 		t.Fatalf("view included filtered-out item:\n%s", view)
+	}
+}
+
+func TestModelRenderUsesCompleteANSISequencesWhenNarrow(t *testing.T) {
+	m := newModel(Options{
+		Title: "slacrawl archive",
+		Items: []Item{{
+			Title:    strings.Repeat("a", 80),
+			Subtitle: strings.Repeat("b", 80),
+			Detail:   strings.Repeat("c", 80),
+			Tags:     []string{"slack", "message", "general"},
+		}},
+	})
+	m.width = 24
+	m.height = 12
+	view := m.View()
+	withoutValidEscapes := regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`).ReplaceAllString(view, "")
+	if strings.Contains(withoutValidEscapes, "\x1b") {
+		t.Fatalf("view contains broken escape sequence: %q", view)
+	}
+	if strings.Contains(view, "\x1b[") && !strings.Contains(view, "\x1b[0m") {
+		t.Fatalf("styled view did not reset styles: %q", view)
 	}
 }
 
