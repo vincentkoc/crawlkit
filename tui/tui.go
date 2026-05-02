@@ -45,11 +45,22 @@ type wheelScrollMsg struct {
 }
 
 type Item struct {
-	Title    string   `json:"title"`
-	Subtitle string   `json:"subtitle,omitempty"`
-	Detail   string   `json:"detail,omitempty"`
-	Tags     []string `json:"tags,omitempty"`
-	Depth    int      `json:"depth,omitempty"`
+	Title     string            `json:"title"`
+	Subtitle  string            `json:"subtitle,omitempty"`
+	Detail    string            `json:"detail,omitempty"`
+	Tags      []string          `json:"tags,omitempty"`
+	Depth     int               `json:"depth,omitempty"`
+	Source    string            `json:"source,omitempty"`
+	Kind      string            `json:"kind,omitempty"`
+	ID        string            `json:"id,omitempty"`
+	ParentID  string            `json:"parent_id,omitempty"`
+	Scope     string            `json:"scope,omitempty"`
+	Container string            `json:"container,omitempty"`
+	Author    string            `json:"author,omitempty"`
+	URL       string            `json:"url,omitempty"`
+	CreatedAt string            `json:"created_at,omitempty"`
+	UpdatedAt string            `json:"updated_at,omitempty"`
+	Fields    map[string]string `json:"fields,omitempty"`
 }
 
 type LayoutPreset string
@@ -186,11 +197,22 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 		depth = 1
 	}
 	return Item{
-		Title:    title,
-		Subtitle: r.subtitleForLayout(layout),
-		Detail:   detail,
-		Tags:     tags,
-		Depth:    depth,
+		Title:     title,
+		Subtitle:  r.subtitleForLayout(layout),
+		Detail:    detail,
+		Tags:      tags,
+		Depth:     depth,
+		Source:    strings.TrimSpace(r.Source),
+		Kind:      strings.TrimSpace(r.Kind),
+		ID:        strings.TrimSpace(r.ID),
+		ParentID:  strings.TrimSpace(r.ParentID),
+		Scope:     strings.TrimSpace(r.Scope),
+		Container: strings.TrimSpace(r.Container),
+		Author:    strings.TrimSpace(r.Author),
+		URL:       strings.TrimSpace(r.URL),
+		CreatedAt: strings.TrimSpace(r.CreatedAt),
+		UpdatedAt: strings.TrimSpace(r.UpdatedAt),
+		Fields:    copyStringMap(r.Fields),
 	}
 }
 
@@ -313,6 +335,17 @@ func fieldLine(key, value string) string {
 	return key + "=" + value
 }
 
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {
@@ -355,6 +388,50 @@ type model struct {
 	wheelSeq       int
 	sourceKind     string
 	sourceLocation string
+	sortMode       sortMode
+	menuOpen       bool
+	menuTitle      string
+	menuItems      []menuItem
+	menuIndex      int
+}
+
+type sortMode int
+
+const (
+	sortDefault sortMode = iota
+	sortNewest
+	sortOldest
+	sortTitle
+	sortKind
+	sortScope
+	sortContainer
+	sortAuthor
+)
+
+type menuAction int
+
+const (
+	actionClose menuAction = iota
+	actionFocusRows
+	actionFocusContext
+	actionFocusDetail
+	actionSortMenu
+	actionHelpMenu
+	actionClearFilter
+	actionQuit
+	actionSortDefault
+	actionSortNewest
+	actionSortOldest
+	actionSortTitle
+	actionSortKind
+	actionSortScope
+	actionSortContainer
+	actionSortAuthor
+)
+
+type menuItem struct {
+	label  string
+	action menuAction
 }
 
 func newModel(opts Options) model {
@@ -413,14 +490,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyQueuedWheelScroll()
 		return m, nil
 	case tea.MouseMsg:
-		switch typed.Type {
-		case tea.MouseWheelUp:
+		switch {
+		case typed.Type == tea.MouseWheelUp || typed.Button == tea.MouseButtonWheelUp:
 			return m, m.queueWheelScroll(m.paneAt(typed.X, typed.Y), -3)
-		case tea.MouseWheelDown:
+		case typed.Type == tea.MouseWheelDown || typed.Button == tea.MouseButtonWheelDown:
 			return m, m.queueWheelScroll(m.paneAt(typed.X, typed.Y), 3)
+		case typed.Button == tea.MouseButtonLeft && typed.Action == tea.MouseActionPress:
+			m.handleLeftClick(typed.X, typed.Y)
+		case typed.Button == tea.MouseButtonRight && typed.Action == tea.MouseActionPress:
+			m.handleRightClick(typed.X, typed.Y)
 		}
 	case tea.KeyMsg:
 		m.cancelQueuedWheelScroll()
+		if m.menuOpen {
+			if cmd := m.updateMenuKey(typed); cmd != nil {
+				return m, cmd
+			}
+			return m, nil
+		}
 		if m.filterMode {
 			switch typed.String() {
 			case "ctrl+c":
@@ -482,7 +569,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureVisible()
 			}
 		case "/", "f":
+			m.closeMenu()
 			m.filterMode = true
+		case "s":
+			m.openSortMenu()
+		case "m":
+			m.openActionMenu()
+		case "?":
+			m.openHelpMenu()
 		case "esc":
 			if m.query != "" {
 				m.query = ""
@@ -493,6 +587,178 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *model) handleLeftClick(x, y int) {
+	layout := m.layout()
+	if m.menuOpen && layout.context.contains(x, y) {
+		if row, ok := m.menuRowAt(layout.context, y); ok {
+			m.menuIndex = row
+			_ = m.runMenuAction(m.menuItems[m.menuIndex].action)
+			return
+		}
+	}
+	m.closeMenu()
+	focus := m.paneAt(x, y)
+	m.focus = focus
+	if focus == focusRows {
+		m.selectRowAt(layout.rows, y)
+	}
+}
+
+func (m *model) handleRightClick(x, y int) {
+	focus := m.paneAt(x, y)
+	m.focus = focus
+	if focus == focusRows {
+		m.selectRowAt(m.layout().rows, y)
+	}
+	m.openActionMenu()
+}
+
+func (m *model) selectRowAt(rect rect, y int) {
+	row := y - rect.y - 2
+	if row < 0 || row >= paneContentHeight(rect.h) {
+		return
+	}
+	selected := m.offset + row
+	if selected < 0 || selected >= len(m.filtered) {
+		return
+	}
+	m.selected = selected
+	m.contextOffset = 0
+	m.detailOffset = 0
+	m.ensureVisible()
+}
+
+func (m model) menuRowAt(rect rect, y int) (int, bool) {
+	row := y - rect.y - 2
+	if row < 0 || row >= len(m.menuItems) {
+		return 0, false
+	}
+	return row, true
+}
+
+func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
+	switch key.String() {
+	case "ctrl+c":
+		return tea.Quit
+	case "esc", "q":
+		m.closeMenu()
+	case "up", "k":
+		m.menuIndex = clampInt(m.menuIndex-1, 0, maxInt(0, len(m.menuItems)-1))
+	case "down", "j":
+		m.menuIndex = clampInt(m.menuIndex+1, 0, maxInt(0, len(m.menuItems)-1))
+	case "enter", " ":
+		if len(m.menuItems) > 0 {
+			return m.runMenuAction(m.menuItems[m.menuIndex].action)
+		}
+	case "s":
+		m.openSortMenu()
+	case "?":
+		m.openHelpMenu()
+	}
+	return nil
+}
+
+func (m *model) openActionMenu() {
+	items := []menuItem{
+		{label: "Focus rows pane", action: actionFocusRows},
+		{label: "Focus context pane", action: actionFocusContext},
+		{label: "Focus detail pane", action: actionFocusDetail},
+		{label: "Sort rows", action: actionSortMenu},
+	}
+	if m.query != "" {
+		items = append(items, menuItem{label: "Clear filter", action: actionClearFilter})
+	}
+	items = append(items,
+		menuItem{label: "Help", action: actionHelpMenu},
+		menuItem{label: "Close menu", action: actionClose},
+	)
+	m.openMenu("Actions", items)
+}
+
+func (m *model) openSortMenu() {
+	m.openMenu("Sort", []menuItem{
+		{label: markActiveSort("Default", m.sortMode == sortDefault), action: actionSortDefault},
+		{label: markActiveSort("Newest", m.sortMode == sortNewest), action: actionSortNewest},
+		{label: markActiveSort("Oldest", m.sortMode == sortOldest), action: actionSortOldest},
+		{label: markActiveSort("Title", m.sortMode == sortTitle), action: actionSortTitle},
+		{label: markActiveSort("Kind", m.sortMode == sortKind), action: actionSortKind},
+		{label: markActiveSort("Scope", m.sortMode == sortScope), action: actionSortScope},
+		{label: markActiveSort("Container", m.sortMode == sortContainer), action: actionSortContainer},
+		{label: markActiveSort("Author", m.sortMode == sortAuthor), action: actionSortAuthor},
+	})
+}
+
+func (m *model) openHelpMenu() {
+	m.openMenu("Help", []menuItem{
+		{label: "Tab/arrow: select pane", action: actionClose},
+		{label: "Mouse click: select pane/row", action: actionClose},
+		{label: "Right click or m: actions", action: actionClose},
+		{label: "s: sort rows", action: actionClose},
+		{label: "/: filter rows", action: actionClose},
+		{label: "j/k or wheel: scroll focused pane", action: actionClose},
+		{label: "enter: detail pane", action: actionClose},
+		{label: "q: quit", action: actionQuit},
+	})
+}
+
+func (m *model) openMenu(title string, items []menuItem) {
+	m.menuOpen = true
+	m.menuTitle = title
+	m.menuItems = append([]menuItem(nil), items...)
+	m.menuIndex = clampInt(m.menuIndex, 0, maxInt(0, len(m.menuItems)-1))
+	m.filterMode = false
+}
+
+func (m *model) closeMenu() {
+	m.menuOpen = false
+	m.menuTitle = ""
+	m.menuItems = nil
+	m.menuIndex = 0
+}
+
+func (m *model) runMenuAction(action menuAction) tea.Cmd {
+	switch action {
+	case actionClose:
+		m.closeMenu()
+	case actionFocusRows:
+		m.focus = focusRows
+		m.closeMenu()
+	case actionFocusContext:
+		m.focus = focusContext
+		m.closeMenu()
+	case actionFocusDetail:
+		m.focus = focusDetail
+		m.closeMenu()
+	case actionSortMenu:
+		m.openSortMenu()
+	case actionHelpMenu:
+		m.openHelpMenu()
+	case actionClearFilter:
+		m.query = ""
+		m.applyFilter()
+		m.closeMenu()
+	case actionSortDefault:
+		m.setSortMode(sortDefault)
+	case actionSortNewest:
+		m.setSortMode(sortNewest)
+	case actionSortOldest:
+		m.setSortMode(sortOldest)
+	case actionSortTitle:
+		m.setSortMode(sortTitle)
+	case actionSortKind:
+		m.setSortMode(sortKind)
+	case actionSortScope:
+		m.setSortMode(sortScope)
+	case actionSortContainer:
+		m.setSortMode(sortContainer)
+	case actionSortAuthor:
+		m.setSortMode(sortAuthor)
+	case actionQuit:
+		return tea.Quit
+	}
+	return nil
 }
 
 func (m model) View() string {
@@ -520,9 +786,14 @@ func (m model) renderHeader(width int) string {
 	if m.query != "" {
 		status += " filtered by " + strconvQuote(m.query)
 	}
+	if m.sortMode != sortDefault {
+		status += " sort " + m.sortMode.Label()
+	}
 	line := m.title + "  " + status
 	if m.filterMode {
 		line += "  filter> " + m.query
+	} else if m.menuOpen {
+		line += "  menu> " + m.menuTitle
 	}
 	return titleStyle(width).Render(padCells(" "+truncateCells(line, maxInt(1, width-2)), width))
 }
@@ -550,6 +821,9 @@ func (m model) renderRowsPane(rect rect) string {
 }
 
 func (m model) renderContextPane(rect rect) string {
+	if m.menuOpen {
+		return pane(m.menuTitle, "enter choose  esc close", m.menuLines(paneContentWidth(rect.w)), rect, true, contextPaneAccent)
+	}
 	item, ok := m.selectedItem()
 	if !ok {
 		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, contextPaneAccent)
@@ -571,15 +845,32 @@ func (m model) renderFooter(width int) string {
 	line := "Ready"
 	if m.filterMode {
 		line = "Filtering"
+	} else if m.menuOpen {
+		line = "Menu"
 	}
 	if location := m.footerLocation(); location != "" {
 		line += "  " + location
 	}
-	controls := "Tab panes  j/k move  / filter  enter details  q quit"
+	controls := "Tab panes  click select  right-click/m menu  s sort  / filter  enter details  q quit"
 	bg, fg := footerPalette(m.sourceKind)
 	statusLine := padCells(" "+truncateCells(line, maxInt(1, width-2)), width)
 	controlsLine := padCells(" "+truncateCells(controls, maxInt(1, width-2)), width)
 	return lipgloss.NewStyle().Width(width).Height(2).Background(bg).Foreground(fg).Render(statusLine + "\n" + controlsLine)
+}
+
+func (m model) menuLines(width int) []string {
+	if len(m.menuItems) == 0 {
+		return []string{"No actions."}
+	}
+	lines := make([]string, 0, len(m.menuItems))
+	for i, item := range m.menuItems {
+		prefix := "  "
+		if i == m.menuIndex {
+			prefix = "> "
+		}
+		lines = append(lines, truncateCells(prefix+item.label, width))
+	}
+	return lines
 }
 
 func (m model) footerLocation() string {
@@ -686,20 +977,57 @@ func (m model) maxDetailOffset() int {
 }
 
 func (m *model) applyFilter() {
+	current := m.currentItemIndex()
 	query := strings.ToLower(strings.TrimSpace(m.query))
 	m.filtered = m.filtered[:0]
 	for i, item := range m.items {
-		if query == "" || strings.Contains(strings.ToLower(item.Title+" "+item.Subtitle+" "+item.Detail+" "+strings.Join(item.Tags, " ")), query) {
+		if query == "" || strings.Contains(strings.ToLower(item.searchText()), query) {
 			m.filtered = append(m.filtered, i)
 		}
 	}
+	m.sortFiltered()
 	if len(m.filtered) == 0 {
 		m.selected = 0
 		m.offset = 0
 		return
 	}
+	if current >= 0 {
+		for i, index := range m.filtered {
+			if index == current {
+				m.selected = i
+				break
+			}
+		}
+	}
 	m.selected = clampInt(m.selected, 0, len(m.filtered)-1)
 	m.ensureVisible()
+}
+
+func (m *model) setSortMode(mode sortMode) {
+	m.sortMode = mode
+	m.applyFilter()
+	m.closeMenu()
+}
+
+func (m model) currentItemIndex() int {
+	if len(m.filtered) == 0 || m.selected < 0 || m.selected >= len(m.filtered) {
+		return -1
+	}
+	return m.filtered[m.selected]
+}
+
+func (m *model) sortFiltered() {
+	if m.sortMode == sortDefault {
+		return
+	}
+	sort.SliceStable(m.filtered, func(i, j int) bool {
+		left := m.items[m.filtered[i]]
+		right := m.items[m.filtered[j]]
+		if less, ok := compareItems(left, right, m.sortMode); ok {
+			return less
+		}
+		return m.filtered[i] < m.filtered[j]
+	})
 }
 
 func (m *model) ensureVisible() {
@@ -777,6 +1105,88 @@ func (m model) selectedItem() (Item, bool) {
 		return Item{}, false
 	}
 	return m.items[index], true
+}
+
+func (s sortMode) Label() string {
+	switch s {
+	case sortNewest:
+		return "newest"
+	case sortOldest:
+		return "oldest"
+	case sortTitle:
+		return "title"
+	case sortKind:
+		return "kind"
+	case sortScope:
+		return "scope"
+	case sortContainer:
+		return "container"
+	case sortAuthor:
+		return "author"
+	default:
+		return "default"
+	}
+}
+
+func markActiveSort(label string, active bool) string {
+	if active {
+		return label + " *"
+	}
+	return label
+}
+
+func compareItems(left, right Item, mode sortMode) (bool, bool) {
+	switch mode {
+	case sortNewest:
+		return compareItemTime(left, right, true)
+	case sortOldest:
+		return compareItemTime(left, right, false)
+	case sortTitle:
+		return compareStrings(left.Title, right.Title)
+	case sortKind:
+		return compareStrings(itemKind(left), itemKind(right))
+	case sortScope:
+		return compareStrings(itemScope(left), itemScope(right))
+	case sortContainer:
+		return compareStrings(itemContainer(left), itemContainer(right))
+	case sortAuthor:
+		return compareStrings(itemAuthor(left), itemAuthor(right))
+	default:
+		return false, false
+	}
+}
+
+func compareItemTime(left, right Item, newest bool) (bool, bool) {
+	leftTime, leftOK := itemSortTime(left)
+	rightTime, rightOK := itemSortTime(right)
+	if leftOK != rightOK {
+		return leftOK, true
+	}
+	if !leftOK {
+		return false, false
+	}
+	if leftTime.Equal(rightTime) {
+		return false, false
+	}
+	if newest {
+		return leftTime.After(rightTime), true
+	}
+	return leftTime.Before(rightTime), true
+}
+
+func compareStrings(left, right string) (bool, bool) {
+	left = strings.ToLower(strings.TrimSpace(left))
+	right = strings.ToLower(strings.TrimSpace(right))
+	if left == right {
+		return false, false
+	}
+	if left == "" {
+		return false, true
+	}
+	if right == "" {
+		return true, true
+	}
+	return left < right, true
 }
 
 func (m model) positionLabel() string {
@@ -888,10 +1298,52 @@ func compactNonEmpty(lines []string) []string {
 	return out
 }
 
+func (item Item) searchText() string {
+	parts := []string{
+		item.Title,
+		item.Subtitle,
+		item.Detail,
+		item.Source,
+		item.Kind,
+		item.ID,
+		item.ParentID,
+		item.Scope,
+		item.Container,
+		item.Author,
+		item.URL,
+		item.CreatedAt,
+		item.UpdatedAt,
+		strings.Join(item.Tags, " "),
+	}
+	if len(item.Fields) > 0 {
+		keys := make([]string, 0, len(item.Fields))
+		for key := range item.Fields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			parts = append(parts, key, item.Fields[key])
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 func contextLines(item Item, width int) []string {
 	lines := []string{
 		fieldLine("title", truncateCells(item.Title, maxInt(1, width-6))),
 		fieldLine("subtitle", item.Subtitle),
+	}
+	for _, line := range []string{
+		fieldLine("source", item.Source),
+		fieldLine("kind", item.Kind),
+		fieldLine("id", item.ID),
+		fieldLine("scope", item.Scope),
+		fieldLine("container", item.Container),
+		fieldLine("author", item.Author),
+	} {
+		if line != "" {
+			lines = append(lines, line)
+		}
 	}
 	if len(item.Tags) > 0 {
 		lines = append(lines, "tags="+strings.Join(item.Tags, " "))
@@ -933,16 +1385,31 @@ func rowListLine(item Item, width int) string {
 }
 
 func rowKind(item Item) string {
+	if kind := itemKind(item); kind != "" {
+		return kind
+	}
+	return "row"
+}
+
+func itemKind(item Item) string {
+	if strings.TrimSpace(item.Kind) != "" {
+		return strings.TrimSpace(item.Kind)
+	}
 	for _, tag := range item.Tags {
 		tag = strings.TrimSpace(tag)
 		if tag != "" {
 			return tag
 		}
 	}
-	return "row"
+	return ""
 }
 
 func rowWhen(item Item) string {
+	for _, value := range []string{item.UpdatedAt, item.CreatedAt} {
+		if short := shortTimestamp(value); short != "" {
+			return short
+		}
+	}
 	for _, part := range subtitleParts(item.Subtitle) {
 		if short := shortTimestamp(part); short != "" {
 			return short
@@ -952,7 +1419,12 @@ func rowWhen(item Item) string {
 }
 
 func rowWhere(item Item) string {
-	kind := strings.ToLower(rowKind(item))
+	for _, value := range []string{item.Container, item.Scope, item.Author} {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	kind := strings.ToLower(itemKind(item))
 	for _, part := range subtitleParts(item.Subtitle) {
 		lower := strings.ToLower(part)
 		if lower == kind || shortTimestamp(part) != "" || looksMachineID(part) {
@@ -961,6 +1433,55 @@ func rowWhere(item Item) string {
 		return part
 	}
 	return ""
+}
+
+func itemScope(item Item) string {
+	if strings.TrimSpace(item.Scope) != "" {
+		return strings.TrimSpace(item.Scope)
+	}
+	return fieldValue(item, "scope")
+}
+
+func itemContainer(item Item) string {
+	if strings.TrimSpace(item.Container) != "" {
+		return strings.TrimSpace(item.Container)
+	}
+	return firstNonEmpty(fieldValue(item, "container"), rowWhere(item))
+}
+
+func itemAuthor(item Item) string {
+	if strings.TrimSpace(item.Author) != "" {
+		return strings.TrimSpace(item.Author)
+	}
+	return firstNonEmpty(fieldValue(item, "author"), fieldValue(item, "user"), fieldValue(item, "sender"))
+}
+
+func fieldValue(item Item, keys ...string) string {
+	if len(item.Fields) == 0 {
+		return ""
+	}
+	for _, key := range keys {
+		for actual, value := range item.Fields {
+			if strings.EqualFold(strings.TrimSpace(actual), strings.TrimSpace(key)) {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
+}
+
+func itemSortTime(item Item) (time.Time, bool) {
+	for _, value := range []string{item.UpdatedAt, item.CreatedAt} {
+		if t, ok := parseTimestamp(value); ok {
+			return t, true
+		}
+	}
+	for _, part := range subtitleParts(item.Subtitle) {
+		if t, ok := parseTimestamp(part); ok {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 func subtitleParts(subtitle string) []string {
@@ -980,15 +1501,26 @@ func shortTimestamp(value string) string {
 	if value == "" {
 		return ""
 	}
-	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
-		if t, err := time.Parse(layout, value); err == nil {
-			return t.UTC().Format("2006-01-02 15:04")
-		}
+	if t, ok := parseTimestamp(value); ok {
+		return t.UTC().Format("2006-01-02 15:04")
 	}
 	if len(value) >= len("2006-01-02") && value[4] == '-' && value[7] == '-' {
 		return truncateCells(strings.ReplaceAll(value, "T", " "), 16)
 	}
 	return ""
+}
+
+func parseTimestamp(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func looksMachineID(value string) bool {

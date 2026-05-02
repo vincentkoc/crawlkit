@@ -263,6 +263,133 @@ func TestMouseWheelTargetsPaneUnderPointer(t *testing.T) {
 	}
 }
 
+func TestLeftClickSelectsRowUnderPointer(t *testing.T) {
+	items := []Item{
+		Row{Kind: "page", Title: "alpha"}.ItemForLayout(LayoutDocument),
+		Row{Kind: "page", Title: "bravo"}.ItemForLayout(LayoutDocument),
+		Row{Kind: "page", Title: "charlie"}.ItemForLayout(LayoutDocument),
+	}
+	m := newModel(Options{Title: "archive", Items: items})
+	m.width = 100
+	m.height = 16
+	layout := m.layout()
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.rows.x + 2,
+		Y:      layout.rows.y + 4,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if m.focus != focusRows {
+		t.Fatalf("focus = %v, want rows", m.focus)
+	}
+	if m.selected != 2 {
+		t.Fatalf("selected = %d, want row under pointer", m.selected)
+	}
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "charlie" {
+		t.Fatalf("selected item = %#v ok=%v", item, ok)
+	}
+}
+
+func TestRightClickOpensSharedActionMenu(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "alpha"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "bravo"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 100
+	m.height = 16
+	layout := m.layout()
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.rows.x + 2,
+		Y:      layout.rows.y + 3,
+		Button: tea.MouseButtonRight,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if !m.menuOpen || m.menuTitle != "Actions" {
+		t.Fatalf("menu open=%v title=%q", m.menuOpen, m.menuTitle)
+	}
+	if m.selected != 1 {
+		t.Fatalf("right click selected = %d, want row under pointer", m.selected)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Focus detail pane") || !strings.Contains(view, "Sort rows") {
+		t.Fatalf("action menu missing expected commands:\n%s", view)
+	}
+}
+
+func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "page", Title: "Zulu"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "page", Title: "Alpha"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if !m.menuOpen || m.menuTitle != "Sort" {
+		t.Fatalf("sort menu open=%v title=%q", m.menuOpen, m.menuTitle)
+	}
+	for m.menuIndex < 3 {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = updated.(model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.sortMode != sortTitle {
+		t.Fatalf("sort mode = %v, want title", m.sortMode)
+	}
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "Zulu" {
+		t.Fatalf("selected item should stay stable after sorting, got %#v ok=%v", item, ok)
+	}
+	m.selected = 0
+	item, ok = m.selectedItem()
+	if !ok || item.Title != "Alpha" {
+		t.Fatalf("first sorted item = %#v ok=%v", item, ok)
+	}
+	view := m.View()
+	if !strings.Contains(view, "sort title") {
+		t.Fatalf("header missing sort status:\n%s", view)
+	}
+}
+
+func TestNewestSortUsesStructuredRowMetadata(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "new", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.setSortMode(sortNewest)
+	m.selected = 0
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "new" {
+		t.Fatalf("newest item = %#v ok=%v", item, ok)
+	}
+}
+
+func TestHelpMenuRendersUniversalControls(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
+	})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = updated.(model)
+	view := m.View()
+	for _, want := range []string{"Help", "Right click or m", "s: sort rows", "Mouse click: select pane/row"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("help menu missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestRowStyleUsesSubtleSelectedPalette(t *testing.T) {
 	selected := rowStyle(80, true, true)
 	if fmt.Sprint(selected.GetForeground()) != archiveSelectedFG {
