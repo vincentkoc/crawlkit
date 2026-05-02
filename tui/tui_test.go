@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func TestBrowseJSONUsesUniversalRows(t *testing.T) {
@@ -152,6 +155,104 @@ func TestFocusedDetailPaneScrollsIndependently(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "2-") {
 		t.Fatalf("detail pane missing scroll indicator:\n%s", view)
+	}
+}
+
+func TestMouseWheelBurstsAreBuffered(t *testing.T) {
+	items := make([]Item, 0, 30)
+	for i := 0; i < 30; i++ {
+		items = append(items, Item{Title: fmt.Sprintf("row %02d", i), Tags: []string{"message"}})
+	}
+	m := newModel(Options{Title: "archive", Items: items})
+	m.width = 100
+	m.height = 14
+	layout := m.layout()
+	initialSelected := m.selected
+
+	queued := 0
+	for i := 0; i < 40; i++ {
+		updated, cmd := m.Update(tea.MouseMsg{
+			X:      layout.rows.x + 2,
+			Y:      layout.rows.y + 2,
+			Type:   tea.MouseWheelDown,
+			Action: tea.MouseActionPress,
+			Button: tea.MouseButtonWheelDown,
+		})
+		m = updated.(model)
+		if cmd != nil {
+			queued++
+		}
+	}
+	if queued != 1 {
+		t.Fatalf("wheel burst queued %d frame ticks, want 1", queued)
+	}
+	if m.selected != initialSelected {
+		t.Fatalf("wheel burst moved immediately to %d, want %d", m.selected, initialSelected)
+	}
+	if m.wheelDelta != wheelMaxBufferedDelta {
+		t.Fatalf("wheel burst delta = %d, want capped %d", m.wheelDelta, wheelMaxBufferedDelta)
+	}
+	updated, _ := m.Update(wheelScrollMsg{seq: m.wheelSeq})
+	m = updated.(model)
+	wantSelected := clampInt(initialSelected+wheelMaxBufferedDelta, 0, len(m.filtered)-1)
+	if m.selected != wantSelected {
+		t.Fatalf("wheel burst selected = %d, want capped movement to %d", m.selected, wantSelected)
+	}
+}
+
+func TestMouseWheelTargetsPaneUnderPointer(t *testing.T) {
+	m := newModel(Options{
+		Title: "discrawl archive",
+		Items: []Item{{
+			Title:  "first",
+			Detail: strings.Join([]string{"line one", "line two", "line three", "line four", "line five", "line six"}, "\n"),
+			Tags:   []string{"message", "discord"},
+		}},
+	})
+	m.width = 100
+	m.height = 12
+	layout := m.layout()
+	if m.maxDetailOffset() == 0 {
+		t.Fatal("test setup expected scrollable detail")
+	}
+	updated, cmd := m.Update(tea.MouseMsg{
+		X:      layout.detail.x + 2,
+		Y:      layout.detail.y + 2,
+		Type:   tea.MouseWheelDown,
+		Action: tea.MouseActionPress,
+		Button: tea.MouseButtonWheelDown,
+	})
+	m = updated.(model)
+	if cmd == nil {
+		t.Fatal("detail wheel should queue a buffered scroll")
+	}
+	if m.focus != focusDetail {
+		t.Fatalf("wheel focus = %v, want detail", m.focus)
+	}
+	if m.selected != 0 {
+		t.Fatalf("detail wheel moved row selection to %d", m.selected)
+	}
+	updated, _ = m.Update(wheelScrollMsg{seq: m.wheelSeq})
+	m = updated.(model)
+	if m.detailOffset == 0 {
+		t.Fatal("detail pane did not scroll after queued wheel")
+	}
+}
+
+func TestRowStyleUsesSubtleSelectedPalette(t *testing.T) {
+	selected := rowStyle(80, true, true)
+	if fmt.Sprint(selected.GetForeground()) != archiveSelectedFG {
+		t.Fatalf("selected foreground = %v, want %s", selected.GetForeground(), archiveSelectedFG)
+	}
+	if fmt.Sprint(selected.GetBackground()) != archiveSelectedBG {
+		t.Fatalf("selected background = %v, want %s", selected.GetBackground(), archiveSelectedBG)
+	}
+	if fmt.Sprint(selected.GetBackground()) == "#2f3f56" {
+		t.Fatal("selected row still uses the old high-contrast blue block")
+	}
+	blurred := rowStyle(80, true, false)
+	if fmt.Sprint(blurred.GetBackground()) != archiveBlurSelectedBG {
+		t.Fatalf("blurred selected background = %v, want %s", blurred.GetBackground(), archiveBlurSelectedBG)
 	}
 }
 

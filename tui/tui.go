@@ -19,6 +19,31 @@ import (
 
 var ErrNotTerminal = errors.New("terminal UI requires an interactive terminal")
 
+const (
+	wheelScrollDelay      = 16 * time.Millisecond
+	wheelMaxBufferedDelta = 6
+	rowsPaneAccent        = "#8fb8d8"
+	contextPaneAccent     = "#a8b8a0"
+	detailPaneAccent      = "#d3b35f"
+	archiveBorderColor    = "#3f4654"
+	archiveHeaderBG       = "#151a24"
+	archiveHeaderFG       = "#dbe3ee"
+	archiveTextFG         = "#c9d2de"
+	archiveMutedFG        = "#8d98a8"
+	archiveSubtleAccentFG = "#8fb8d8"
+	archiveSelectedFG     = "#f0d070"
+	archiveSelectedBG     = "#242215"
+	archiveBlurSelectedFG = "#c8bc86"
+	archiveBlurSelectedBG = "#1b1b15"
+	archiveRemoteFooterBG = "#d3b35f"
+	archiveLocalFooterBG  = "#8fb8d8"
+	archiveFooterFG       = "#05070d"
+)
+
+type wheelScrollMsg struct {
+	seq int
+}
+
 type Item struct {
 	Title    string   `json:"title"`
 	Subtitle string   `json:"subtitle,omitempty"`
@@ -324,6 +349,10 @@ type model struct {
 	focus          paneFocus
 	contextOffset  int
 	detailOffset   int
+	wheelPending   bool
+	wheelFocus     paneFocus
+	wheelDelta     int
+	wheelSeq       int
 	sourceKind     string
 	sourceLocation string
 }
@@ -354,6 +383,8 @@ const (
 )
 
 type rect struct {
+	x int
+	y int
 	w int
 	h int
 }
@@ -375,13 +406,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = maxInt(typed.Width, 40)
 		m.height = maxInt(typed.Height, 12)
 		m.ensureVisible()
+	case wheelScrollMsg:
+		if typed.seq != m.wheelSeq {
+			return m, nil
+		}
+		m.applyQueuedWheelScroll()
+		return m, nil
 	case tea.MouseMsg:
-		if typed.Type == tea.MouseWheelUp {
-			m.scrollFocused(-3)
-		} else if typed.Type == tea.MouseWheelDown {
-			m.scrollFocused(3)
+		switch typed.Type {
+		case tea.MouseWheelUp:
+			return m, m.queueWheelScroll(m.paneAt(typed.X, typed.Y), -3)
+		case tea.MouseWheelDown:
+			return m, m.queueWheelScroll(m.paneAt(typed.X, typed.Y), 3)
 		}
 	case tea.KeyMsg:
+		m.cancelQueuedWheelScroll()
 		if m.filterMode {
 			switch typed.String() {
 			case "ctrl+c":
@@ -408,18 +447,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = nextFocus(m.focus, 1)
 		case "shift+tab", "left":
 			m.focus = nextFocus(m.focus, -1)
-		case "up", "k":
-			if m.focus == focusRows {
-				m.move(-1)
-			} else {
-				m.scrollFocused(-1)
-			}
-		case "down", "j":
-			if m.focus == focusRows {
-				m.move(1)
-			} else {
-				m.scrollFocused(1)
-			}
+			case "up", "k":
+				if m.focus == focusRows {
+					m.move(-1)
+				} else {
+					m.scrollFocused(-1)
+				}
+			case "down", "j":
+				if m.focus == focusRows {
+					m.move(1)
+				} else {
+					m.scrollFocused(1)
+				}
 		case "pgup", "ctrl+b":
 			if m.focus == focusRows {
 				m.move(-m.pageSize())
@@ -504,28 +543,28 @@ func (m model) renderRowsPane(rect rect) string {
 				prefix = "> "
 			}
 			line := prefix + rowListLine(item, paneContentWidth(rect.w)-lipgloss.Width(prefix))
-			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected && m.focus == focusRows).Render(line))
+			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusRows).Render(line))
 		}
 	}
-	return pane("Rows", m.positionLabel(), lines, rect, m.focus == focusRows, "#5bc0eb")
+	return pane("Rows", m.positionLabel(), lines, rect, m.focus == focusRows, rowsPaneAccent)
 }
 
 func (m model) renderContextPane(rect rect) string {
 	item, ok := m.selectedItem()
 	if !ok {
-		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, "#9bc53d")
+		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, contextPaneAccent)
 	}
 	lines := contextLines(item, paneContentWidth(rect.w))
-	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, "#9bc53d", m.contextOffset)
+	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, contextPaneAccent, m.contextOffset)
 }
 
 func (m model) renderDetailPane(rect rect) string {
 	item, ok := m.selectedItem()
 	if !ok {
-		return pane("Detail", "", []string{"No row selected."}, rect, m.focus == focusDetail, "#f2c14e")
+		return pane("Detail", "", []string{"No row selected."}, rect, m.focus == focusDetail, detailPaneAccent)
 	}
 	lines := detailLines(item)
-	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, "#f2c14e", m.detailOffset)
+	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, detailPaneAccent, m.detailOffset)
 }
 
 func (m model) renderFooter(width int) string {
@@ -572,6 +611,48 @@ func (m *model) scrollFocused(delta int) {
 	default:
 		m.move(delta)
 	}
+}
+
+func (m *model) queueWheelScroll(focus paneFocus, delta int) tea.Cmd {
+	if delta == 0 {
+		return nil
+	}
+	if m.wheelPending && m.wheelFocus != focus {
+		m.cancelQueuedWheelScroll()
+	}
+	m.focus = focus
+	m.wheelFocus = focus
+	m.wheelDelta = clampInt(m.wheelDelta+delta, -wheelMaxBufferedDelta, wheelMaxBufferedDelta)
+	if m.wheelPending {
+		return nil
+	}
+	m.wheelPending = true
+	m.wheelSeq++
+	seq := m.wheelSeq
+	return tea.Tick(wheelScrollDelay, func(time.Time) tea.Msg {
+		return wheelScrollMsg{seq: seq}
+	})
+}
+
+func (m *model) cancelQueuedWheelScroll() {
+	if !m.wheelPending && m.wheelDelta == 0 {
+		return
+	}
+	m.wheelPending = false
+	m.wheelDelta = 0
+	m.wheelSeq++
+}
+
+func (m *model) applyQueuedWheelScroll() {
+	delta := m.wheelDelta
+	focus := m.wheelFocus
+	m.wheelPending = false
+	m.wheelDelta = 0
+	if delta == 0 {
+		return
+	}
+	m.focus = focus
+	m.scrollFocused(delta)
 }
 
 func (m model) focusedPageSize() int {
@@ -654,19 +735,37 @@ func (m model) layout() archiveLayout {
 		rightW := width - rowsW
 		contextH := minInt(maxInt(7, bodyH/3), maxInt(5, bodyH-4))
 		return archiveLayout{
-			rows:    rect{w: rowsW, h: bodyH},
-			context: rect{w: rightW, h: contextH},
-			detail:  rect{w: rightW, h: bodyH - contextH},
+			rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
+			context: rect{x: rowsW, y: 1, w: rightW, h: contextH},
+			detail:  rect{x: rowsW, y: 1 + contextH, w: rightW, h: bodyH - contextH},
 		}
 	}
 	rowsH := maxInt(5, bodyH*42/100)
 	contextH := minInt(maxInt(4, bodyH*24/100), maxInt(3, bodyH-rowsH-3))
 	return archiveLayout{
-		rows:    rect{w: width, h: rowsH},
-		context: rect{w: width, h: contextH},
-		detail:  rect{w: width, h: bodyH - rowsH - contextH},
+		rows:    rect{x: 0, y: 1, w: width, h: rowsH},
+		context: rect{x: 0, y: 1 + rowsH, w: width, h: contextH},
+		detail:  rect{x: 0, y: 1 + rowsH + contextH, w: width, h: bodyH - rowsH - contextH},
 		stacked: true,
 	}
+}
+
+func (m model) paneAt(x, y int) paneFocus {
+	layout := m.layout()
+	switch {
+	case layout.rows.contains(x, y):
+		return focusRows
+	case layout.context.contains(x, y):
+		return focusContext
+	case layout.detail.contains(x, y):
+		return focusDetail
+	default:
+		return m.focus
+	}
+}
+
+func (r rect) contains(x, y int) bool {
+	return x >= r.x && x < r.x+r.w && y >= r.y && y < r.y+r.h
 }
 
 func (m model) selectedItem() (Item, bool) {
@@ -729,7 +828,7 @@ func paneScrolled(title, subtitle string, lines []string, rect rect, focused boo
 			subtitle += "  " + scrollLabel
 		}
 	}
-	borderColor := "#475569"
+	borderColor := archiveBorderColor
 	if focused {
 		borderColor = accent
 	}
@@ -739,7 +838,7 @@ func paneScrolled(title, subtitle string, lines []string, rect rect, focused boo
 	}
 	top := "+" + strings.Repeat("-", maxInt(0, width-2)) + "+"
 	border := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#dfe7ef")).Bold(focused)
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(archiveHeaderFG)).Bold(focused)
 	header := border.Render("|") +
 		headerStyle.Render(padCells(" "+truncateCells(titleLine, maxInt(1, contentW-1)), contentW)) +
 		border.Render("|")
@@ -909,40 +1008,45 @@ func looksMachineID(value string) bool {
 func titleStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("#f8fafc")).
-		Background(lipgloss.Color("#172033")).
+		Foreground(lipgloss.Color(archiveHeaderFG)).
+		Background(lipgloss.Color(archiveHeaderBG)).
 		Width(width)
 }
 
 func mutedStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#8f9aaa")).
+		Foreground(lipgloss.Color(archiveMutedFG)).
 		Width(width)
 }
 
 func accentStyle() lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(lipgloss.Color("#7fb4d8"))
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveSubtleAccentFG))
 }
 
 func tagStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#7fb4d8")).
+		Foreground(lipgloss.Color(archiveSubtleAccentFG)).
 		Width(width)
 }
 
-func rowStyle(width int, selected bool) lipgloss.Style {
+func rowStyle(width int, selected bool, focused bool) lipgloss.Style {
 	style := lipgloss.NewStyle().Width(width)
 	if selected {
+		if focused {
+			return style.
+				Foreground(lipgloss.Color(archiveSelectedFG)).
+				Background(lipgloss.Color(archiveSelectedBG))
+		}
 		return style.
-			Foreground(lipgloss.Color("#f8fafc")).
-			Background(lipgloss.Color("#2f3f56"))
+			Foreground(lipgloss.Color(archiveBlurSelectedFG)).
+			Background(lipgloss.Color(archiveBlurSelectedBG))
 	}
-	return style.Foreground(lipgloss.Color("#d7dee8"))
+	return style.Foreground(lipgloss.Color(archiveTextFG))
 }
 
 func separator(width int) string {
 	return lipgloss.NewStyle().
-		Foreground(lipgloss.Color("#475569")).
+		Foreground(lipgloss.Color(archiveBorderColor)).
 		Width(width).
 		Render(strings.Repeat("-", minInt(width, 120)))
 }
@@ -1045,9 +1149,9 @@ func normalizeSourceKind(value string) string {
 func footerPalette(source string) (lipgloss.Color, lipgloss.Color) {
 	switch normalizeSourceKind(source) {
 	case SourceRemote:
-		return lipgloss.Color("#f2c14e"), lipgloss.Color("#05070d")
+		return lipgloss.Color(archiveRemoteFooterBG), lipgloss.Color(archiveFooterFG)
 	default:
-		return lipgloss.Color("#5bc0eb"), lipgloss.Color("#05070d")
+		return lipgloss.Color(archiveLocalFooterBG), lipgloss.Color(archiveFooterFG)
 	}
 }
 
