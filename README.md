@@ -10,7 +10,7 @@ CLI output helpers, and safe desktop-cache snapshot utilities.
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.3.7
+go get github.com/vincentkoc/crawlkit@v0.3.8
 ```
 
 Go packages are published by tagging this repository. There is no separate
