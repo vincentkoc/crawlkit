@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -321,6 +322,8 @@ type model struct {
 	query          string
 	filterMode     bool
 	focus          paneFocus
+	contextOffset  int
+	detailOffset   int
 	sourceKind     string
 	sourceLocation string
 }
@@ -374,9 +377,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ensureVisible()
 	case tea.MouseMsg:
 		if typed.Type == tea.MouseWheelUp {
-			m.move(-3)
+			m.scrollFocused(-3)
 		} else if typed.Type == tea.MouseWheelDown {
-			m.move(3)
+			m.scrollFocused(3)
 		}
 	case tea.KeyMsg:
 		if m.filterMode {
@@ -408,18 +411,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.focus == focusRows {
 				m.move(-1)
+			} else {
+				m.scrollFocused(-1)
 			}
 		case "down", "j":
 			if m.focus == focusRows {
 				m.move(1)
+			} else {
+				m.scrollFocused(1)
 			}
 		case "pgup", "ctrl+b":
 			if m.focus == focusRows {
 				m.move(-m.pageSize())
+			} else {
+				m.scrollFocused(-m.focusedPageSize())
 			}
 		case "pgdown", "ctrl+f":
 			if m.focus == focusRows {
 				m.move(m.pageSize())
+			} else {
+				m.scrollFocused(m.focusedPageSize())
 			}
 		case "home", "g":
 			if m.focus == focusRows {
@@ -492,11 +503,7 @@ func (m model) renderRowsPane(rect rect) string {
 			if selected {
 				prefix = "> "
 			}
-			line := item.Title
-			if item.Depth > 0 {
-				line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
-			}
-			line = truncateCells(prefix+line, paneContentWidth(rect.w))
+			line := prefix + rowListLine(item, paneContentWidth(rect.w)-lipgloss.Width(prefix))
 			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected && m.focus == focusRows).Render(line))
 		}
 	}
@@ -508,15 +515,8 @@ func (m model) renderContextPane(rect rect) string {
 	if !ok {
 		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, "#9bc53d")
 	}
-	lines := []string{
-		fieldLine("title", truncateCells(item.Title, maxInt(1, paneContentWidth(rect.w)-6))),
-		fieldLine("subtitle", item.Subtitle),
-	}
-	if len(item.Tags) > 0 {
-		lines = append(lines, "tags="+strings.Join(item.Tags, " "))
-	}
-	lines = compactNonEmpty(lines)
-	return pane("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, "#9bc53d")
+	lines := contextLines(item, paneContentWidth(rect.w))
+	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, "#9bc53d", m.contextOffset)
 }
 
 func (m model) renderDetailPane(rect rect) string {
@@ -524,15 +524,8 @@ func (m model) renderDetailPane(rect rect) string {
 	if !ok {
 		return pane("Detail", "", []string{"No row selected."}, rect, m.focus == focusDetail, "#f2c14e")
 	}
-	detail := strings.TrimSpace(item.Detail)
-	if detail == "" {
-		detail = item.Subtitle
-	}
-	lines := wrapLines(detail, paneContentWidth(rect.w))
-	if len(lines) == 0 {
-		lines = []string{"No detail for this row."}
-	}
-	return pane("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, "#f2c14e")
+	lines := detailLines(item)
+	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, "#f2c14e", m.detailOffset)
 }
 
 func (m model) renderFooter(width int) string {
@@ -565,7 +558,50 @@ func (m *model) move(delta int) {
 		return
 	}
 	m.selected = clampInt(m.selected+delta, 0, len(m.filtered)-1)
+	m.contextOffset = 0
+	m.detailOffset = 0
 	m.ensureVisible()
+}
+
+func (m *model) scrollFocused(delta int) {
+	switch m.focus {
+	case focusContext:
+		m.contextOffset = clampInt(m.contextOffset+delta, 0, m.maxContextOffset())
+	case focusDetail:
+		m.detailOffset = clampInt(m.detailOffset+delta, 0, m.maxDetailOffset())
+	default:
+		m.move(delta)
+	}
+}
+
+func (m model) focusedPageSize() int {
+	layout := m.layout()
+	switch m.focus {
+	case focusContext:
+		return maxInt(1, paneContentHeight(layout.context.h))
+	case focusDetail:
+		return maxInt(1, paneContentHeight(layout.detail.h))
+	default:
+		return m.pageSize()
+	}
+}
+
+func (m model) maxContextOffset() int {
+	item, ok := m.selectedItem()
+	if !ok {
+		return 0
+	}
+	layout := m.layout()
+	return maxPaneScroll(contextLines(item, paneContentWidth(layout.context.w)), layout.context)
+}
+
+func (m model) maxDetailOffset() int {
+	item, ok := m.selectedItem()
+	if !ok {
+		return 0
+	}
+	layout := m.layout()
+	return maxPaneScroll(detailLines(item), layout.detail)
 }
 
 func (m *model) applyFilter() {
@@ -670,10 +706,29 @@ func paneFocusLabel(focused bool) string {
 }
 
 func pane(title, subtitle string, lines []string, rect rect, focused bool, accent string) string {
+	return paneScrolled(title, subtitle, lines, rect, focused, accent, 0)
+}
+
+func paneScrolled(title, subtitle string, lines []string, rect rect, focused bool, accent string, scrollOffset int) string {
 	width := maxInt(rect.w, 12)
 	height := maxInt(rect.h, 3)
 	contentW := paneContentWidth(width)
 	contentH := paneContentHeight(height)
+	body := flattenedPaneLines(lines, contentW)
+	if len(body) == 0 {
+		body = append(body, "")
+	}
+	maxOffset := maxInt(0, len(body)-contentH)
+	scrollOffset = clampInt(scrollOffset, 0, maxOffset)
+	if maxOffset > 0 {
+		visibleEnd := minInt(len(body), scrollOffset+contentH)
+		scrollLabel := fmt.Sprintf("%d-%d/%d", scrollOffset+1, visibleEnd, len(body))
+		if strings.TrimSpace(subtitle) == "" {
+			subtitle = scrollLabel
+		} else {
+			subtitle += "  " + scrollLabel
+		}
+	}
 	borderColor := "#475569"
 	if focused {
 		borderColor = accent
@@ -688,27 +743,32 @@ func pane(title, subtitle string, lines []string, rect rect, focused bool, accen
 	header := border.Render("|") +
 		headerStyle.Render(padCells(" "+truncateCells(titleLine, maxInt(1, contentW-1)), contentW)) +
 		border.Render("|")
-	body := make([]string, 0, contentH)
-	for _, line := range lines {
-		for _, wrapped := range wrapLines(line, contentW) {
-			body = append(body, wrapped)
-		}
-	}
-	if len(body) == 0 {
-		body = append(body, "")
-	}
+	body = append([]string(nil), body[scrollOffset:minInt(len(body), scrollOffset+contentH)]...)
 	for len(body) < contentH {
 		body = append(body, "")
 	}
-	if len(body) > contentH {
-		body = body[:contentH]
-	}
 	out := []string{border.Render(top), header}
-	for _, line := range body[:maxInt(0, contentH-1)] {
+	for _, line := range body[:contentH] {
 		out = append(out, border.Render("|")+padCells(truncateCells(line, contentW), contentW)+border.Render("|"))
 	}
 	out = append(out, border.Render(top))
 	return strings.Join(out, "\n")
+}
+
+func flattenedPaneLines(lines []string, width int) []string {
+	var body []string
+	for _, line := range lines {
+		body = append(body, wrapLines(line, width)...)
+	}
+	return body
+}
+
+func maxPaneScroll(lines []string, rect rect) int {
+	body := flattenedPaneLines(lines, paneContentWidth(rect.w))
+	if len(body) == 0 {
+		return 0
+	}
+	return maxInt(0, len(body)-paneContentHeight(rect.h))
 }
 
 func paneContentWidth(width int) int {
@@ -727,6 +787,123 @@ func compactNonEmpty(lines []string) []string {
 		}
 	}
 	return out
+}
+
+func contextLines(item Item, width int) []string {
+	lines := []string{
+		fieldLine("title", truncateCells(item.Title, maxInt(1, width-6))),
+		fieldLine("subtitle", item.Subtitle),
+	}
+	if len(item.Tags) > 0 {
+		lines = append(lines, "tags="+strings.Join(item.Tags, " "))
+	}
+	return compactNonEmpty(lines)
+}
+
+func detailLines(item Item) []string {
+	detail := strings.TrimSpace(item.Detail)
+	if detail == "" {
+		detail = item.Subtitle
+	}
+	lines := wrapLines(detail, 1000)
+	if len(lines) == 0 {
+		return []string{"No detail for this row."}
+	}
+	return lines
+}
+
+func rowListLine(item Item, width int) string {
+	width = maxInt(width, 1)
+	title := item.Title
+	if item.Depth > 0 {
+		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
+	}
+	if width < 46 {
+		return truncateCells(title, width)
+	}
+	kind := rowKind(item)
+	when := rowWhen(item)
+	where := rowWhere(item)
+	meta := strings.TrimSpace(joinNonEmpty([]string{where, when}, " "))
+	kindW := minInt(maxInt(5, width/9), 10)
+	metaW := minInt(maxInt(12, width/4), 28)
+	titleW := maxInt(1, width-kindW-metaW-2)
+	return padCells(truncateCells(kind, kindW), kindW) + " " +
+		padCells(truncateCells(meta, metaW), metaW) + " " +
+		truncateCells(title, titleW)
+}
+
+func rowKind(item Item) string {
+	for _, tag := range item.Tags {
+		tag = strings.TrimSpace(tag)
+		if tag != "" {
+			return tag
+		}
+	}
+	return "row"
+}
+
+func rowWhen(item Item) string {
+	for _, part := range subtitleParts(item.Subtitle) {
+		if short := shortTimestamp(part); short != "" {
+			return short
+		}
+	}
+	return ""
+}
+
+func rowWhere(item Item) string {
+	kind := strings.ToLower(rowKind(item))
+	for _, part := range subtitleParts(item.Subtitle) {
+		lower := strings.ToLower(part)
+		if lower == kind || shortTimestamp(part) != "" || looksMachineID(part) {
+			continue
+		}
+		return part
+	}
+	return ""
+}
+
+func subtitleParts(subtitle string) []string {
+	raw := strings.Split(subtitle, "  ")
+	parts := make([]string, 0, len(raw))
+	for _, part := range raw {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	return parts
+}
+
+func shortTimestamp(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z07:00"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.UTC().Format("2006-01-02 15:04")
+		}
+	}
+	if len(value) >= len("2006-01-02") && value[4] == '-' && value[7] == '-' {
+		return truncateCells(strings.ReplaceAll(value, "T", " "), 16)
+	}
+	return ""
+}
+
+func looksMachineID(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) < 12 || strings.ContainsAny(value, " \t\n") {
+		return false
+	}
+	digits := 0
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			digits++
+		}
+	}
+	return digits >= 4
 }
 
 func titleStyle(width int) lipgloss.Style {

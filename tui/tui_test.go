@@ -114,6 +114,47 @@ func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
 	}
 }
 
+func TestRowsPaneUsesStableColumns(t *testing.T) {
+	line := rowListLine(Item{
+		Title:    "Can you check again? Hoping this update worked.",
+		Subtitle: "general  vincent  2026-05-02T12:00:00Z",
+		Tags:     []string{"message", "discord"},
+	}, 100)
+	for _, want := range []string{"message", "2026-05-02", "general", "Can you check"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("row line missing %q: %q", want, line)
+		}
+	}
+	if strings.Contains(line, "vincent  2026") {
+		t.Fatalf("row line should not dump raw subtitle: %q", line)
+	}
+}
+
+func TestFocusedDetailPaneScrollsIndependently(t *testing.T) {
+	m := newModel(Options{
+		Title: "discrawl archive",
+		Items: []Item{{
+			Title:  "first",
+			Detail: strings.Join([]string{"line one", "line two", "line three", "line four", "line five", "line six"}, "\n"),
+			Tags:   []string{"message", "discord"},
+		}},
+	})
+	m.width = 80
+	m.height = 12
+	m.focus = focusDetail
+	m.scrollFocused(1)
+	if m.selected != 0 {
+		t.Fatalf("detail scroll moved row selection to %d", m.selected)
+	}
+	if m.detailOffset == 0 {
+		t.Fatal("detail pane did not scroll")
+	}
+	view := m.View()
+	if !strings.Contains(view, "2-") {
+		t.Fatalf("detail pane missing scroll indicator:\n%s", view)
+	}
+}
+
 func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
 	item := Row{
 		Source:    "notion",
