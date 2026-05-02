@@ -5,12 +5,13 @@ Shared Go infrastructure for local-first crawler archives.
 `crawlkit` is not a universal Slack, Discord, Notion, or GitHub crawler. It is
 the reusable foundation beneath those tools: SQLite hygiene, TOML config
 defaults, portable JSONL/Gzip packing, git-backed snapshot sharing, sync state,
-CLI output helpers, and safe desktop-cache snapshot utilities.
+CLI output helpers, a shared terminal explorer, and safe desktop-cache snapshot
+utilities.
 
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.3.8
+go get github.com/vincentkoc/crawlkit@v0.3.9
 ```
 
 Go packages are published by tagging this repository. There is no separate
@@ -24,7 +25,7 @@ package registry step. See `docs/publishing.md` for the release commands.
 - `mirror`: clone/init/pull/commit/push helpers for private snapshot repos.
 - `state`: generic crawler cursor and freshness records.
 - `output`: text/json/log output helpers.
-- `tui`: shared terminal archive browser with compact rows, context/detail panes, and local/remote source status.
+- `tui`: shared terminal archive explorer with compact rows, context/detail panes, mouse selection, right-click actions, sorting/filtering, and local/remote source status.
 - `cache`: safe read-only local cache snapshot helpers.
 
 ## Safety
