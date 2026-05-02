@@ -112,8 +112,11 @@ func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
 	if strings.Contains(view, "general  vincent") {
 		t.Fatalf("rows pane should not append chat metadata:\n%s", view)
 	}
-	if !strings.Contains(view, "subtitle=general vincent") {
-		t.Fatalf("context pane should keep chat metadata:\n%s", view)
+	if !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
+		t.Fatalf("context pane should render grouped messages:\n%s", view)
+	}
+	if !strings.Contains(view, "container=general") || !strings.Contains(view, "author=vincent") {
+		t.Fatalf("detail pane should keep chat metadata:\n%s", view)
 	}
 }
 
@@ -402,6 +405,63 @@ func TestWideLayoutUsesThreeColumnsByDefault(t *testing.T) {
 	}
 	if layout.rows.x != 0 || layout.context.x <= layout.rows.x || layout.detail.x <= layout.context.x {
 		t.Fatalf("wide panes should progress left-to-right: %#v", layout)
+	}
+}
+
+func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", Container: "general", Author: "alice", Title: "first", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Container: "general", Author: "bob", Title: "second", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Container: "random", Author: "alice", Title: "third", CreatedAt: "2026-05-01T12:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 160
+	m.height = 24
+	view := m.View()
+	if !strings.Contains(view, "Channels / People") || !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
+		t.Fatalf("chat explorer did not render grouped panes:\n%s", view)
+	}
+	if len(m.groups) != 2 {
+		t.Fatalf("groups = %#v", m.groups)
+	}
+	for i, group := range m.groups {
+		if group.Title == "general" {
+			m.selectGroup(i)
+			if group.Count != 2 {
+				t.Fatalf("general group count = %d", group.Count)
+			}
+			break
+		}
+	}
+	m.focus = focusContext
+	m.moveMember(1)
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "second" {
+		t.Fatalf("selected member = %#v ok=%v", item, ok)
+	}
+}
+
+func TestDocumentExplorerGroupsParentsAndListsPages(t *testing.T) {
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", ParentID: "folder-a", Title: "Roadmap", UpdatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "database", ParentID: "folder-a", Title: "Leads", UpdatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "page", ParentID: "folder-b", Title: "Notes", UpdatedAt: "2026-05-01T12:00:00Z"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	m.width = 160
+	m.height = 24
+	view := m.View()
+	if !strings.Contains(view, "Parents") || !strings.Contains(view, "Pages / Databases") || !strings.Contains(view, "folder-a") {
+		t.Fatalf("document explorer did not render parent/member panes:\n%s", view)
+	}
+	if len(m.groups) != 2 || m.groups[0].Kind != "parent" {
+		t.Fatalf("groups = %#v", m.groups)
 	}
 }
 

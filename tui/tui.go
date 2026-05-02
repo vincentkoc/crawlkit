@@ -99,6 +99,7 @@ type Options struct {
 	Title          string
 	EmptyMessage   string
 	Items          []Item
+	Layout         LayoutPreset
 	SourceKind     string
 	SourceLocation string
 	Stdin          io.Reader
@@ -156,6 +157,7 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		Title:          title,
 		EmptyMessage:   empty,
 		Items:          items,
+		Layout:         layout,
 		SourceKind:     opts.SourceKind,
 		SourceLocation: opts.SourceLocation,
 		Stdin:          opts.Stdin,
@@ -254,6 +256,18 @@ func Run(ctx context.Context, opts Options) error {
 func inferLayout(rows []Row) LayoutPreset {
 	for _, row := range rows {
 		switch strings.ToLower(strings.TrimSpace(row.Kind)) {
+		case "message", "thread", "reply":
+			return LayoutChat
+		case "page", "database", "block", "collection":
+			return LayoutDocument
+		}
+	}
+	return LayoutList
+}
+
+func inferLayoutFromItems(items []Item) LayoutPreset {
+	for _, item := range items {
+		switch strings.ToLower(strings.TrimSpace(itemKind(item))) {
 		case "message", "thread", "reply":
 			return LayoutChat
 		case "page", "database", "block", "collection":
@@ -373,6 +387,7 @@ type model struct {
 	title          string
 	items          []Item
 	filtered       []int
+	groups         []itemGroup
 	selected       int
 	offset         int
 	width          int
@@ -388,6 +403,7 @@ type model struct {
 	wheelSeq       int
 	sourceKind     string
 	sourceLocation string
+	layoutPreset   LayoutPreset
 	sortMode       sortMode
 	layoutMode     layoutMode
 	menuOpen       bool
@@ -458,6 +474,10 @@ const (
 )
 
 func newModel(opts Options) model {
+	layout := opts.Layout
+	if layout == LayoutAuto {
+		layout = inferLayoutFromItems(opts.Items)
+	}
 	m := model{
 		title:          strings.TrimSpace(opts.Title),
 		items:          append([]Item(nil), opts.Items...),
@@ -466,6 +486,7 @@ func newModel(opts Options) model {
 		focus:          focusRows,
 		sourceKind:     normalizeSourceKind(opts.SourceKind),
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
+		layoutPreset:   layout,
 	}
 	if m.title == "" {
 		m.title = "archive"
@@ -495,6 +516,16 @@ type archiveLayout struct {
 	detail  rect
 	stacked bool
 	mode    string
+}
+
+type itemGroup struct {
+	Key     string
+	Title   string
+	Kind    string
+	Scope   string
+	Count   int
+	Latest  string
+	Members []int
 }
 
 func (m model) Init() tea.Cmd {
@@ -570,37 +601,49 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = nextFocus(m.focus, -1)
 		case "up", "k":
 			if m.focus == focusRows {
-				m.move(-1)
+				m.moveGroup(-1)
+			} else if m.focus == focusContext {
+				m.moveMember(-1)
 			} else {
 				m.scrollFocused(-1)
 			}
 		case "down", "j":
 			if m.focus == focusRows {
-				m.move(1)
+				m.moveGroup(1)
+			} else if m.focus == focusContext {
+				m.moveMember(1)
 			} else {
 				m.scrollFocused(1)
 			}
 		case "pgup", "ctrl+b":
 			if m.focus == focusRows {
-				m.move(-m.pageSize())
+				m.moveGroup(-m.pageSize())
+			} else if m.focus == focusContext {
+				m.moveMember(-m.focusedPageSize())
 			} else {
 				m.scrollFocused(-m.focusedPageSize())
 			}
 		case "pgdown", "ctrl+f":
 			if m.focus == focusRows {
-				m.move(m.pageSize())
+				m.moveGroup(m.pageSize())
+			} else if m.focus == focusContext {
+				m.moveMember(m.focusedPageSize())
 			} else {
 				m.scrollFocused(m.focusedPageSize())
 			}
 		case "home", "g":
 			if m.focus == focusRows {
-				m.selected = 0
+				m.selectGroup(0)
 				m.ensureVisible()
+			} else if m.focus == focusContext {
+				m.selectMemberOffset(0)
 			}
 		case "end", "G":
 			if m.focus == focusRows {
-				m.selected = len(m.filtered) - 1
+				m.selectGroup(len(m.groups) - 1)
 				m.ensureVisible()
+			} else if m.focus == focusContext {
+				m.selectMemberOffset(len(m.currentGroupMembers()) - 1)
 			}
 		case "/", "f":
 			m.startFilter()
@@ -630,7 +673,9 @@ func (m *model) handleLeftClick(x, y int) {
 	focus := m.paneAt(x, y)
 	m.focus = focus
 	if focus == focusRows {
-		m.selectRowAt(layout.rows, x, y)
+		m.selectGroupAt(layout.rows, x, y)
+	} else if focus == focusContext {
+		m.selectMemberAt(layout.context, x, y)
 	}
 }
 
@@ -638,13 +683,15 @@ func (m *model) handleRightClick(x, y int) {
 	focus := m.paneAt(x, y)
 	m.focus = focus
 	if focus == focusRows {
-		m.selectRowAt(m.layout().rows, x, y)
+		m.selectGroupAt(m.layout().rows, x, y)
+	} else if focus == focusContext {
+		m.selectMemberAt(m.layout().context, x, y)
 	}
 	m.openActionMenuFor(focus)
 	m.placeFloatingMenu(x, y)
 }
 
-func (m *model) selectRowAt(rect rect, x, y int) {
+func (m *model) selectGroupAt(rect rect, x, y int) {
 	row := y - rect.y - 3
 	if row == -1 {
 		m.sortRowsFromHeader(x - rect.x - 2)
@@ -653,11 +700,35 @@ func (m *model) selectRowAt(rect rect, x, y int) {
 	if row < 0 || row >= rowsViewportHeight(rect.h) {
 		return
 	}
-	selected := m.offset + row
-	if selected < 0 || selected >= len(m.filtered) {
+	groupIndex := m.offset + row
+	if groupIndex < 0 || groupIndex >= len(m.groups) {
 		return
 	}
-	m.selected = selected
+	m.selectGroup(groupIndex)
+}
+
+func (m *model) selectMemberAt(rect rect, x, y int) {
+	row := y - rect.y - 3
+	if row == -1 {
+		m.sortRowsFromHeader(x - rect.x - 2)
+		return
+	}
+	members := m.currentGroupMembers()
+	memberOffset := m.contextOffset + row
+	if row < 0 || row >= rowsViewportHeight(rect.h) || memberOffset < 0 || memberOffset >= len(members) {
+		return
+	}
+	itemIndex := members[memberOffset]
+	m.selectItemIndex(itemIndex)
+	m.detailOffset = 0
+	m.ensureVisible()
+}
+
+func (m *model) selectGroup(groupIndex int) {
+	if groupIndex < 0 || groupIndex >= len(m.groups) || len(m.groups[groupIndex].Members) == 0 {
+		return
+	}
+	m.selectItemIndex(m.groups[groupIndex].Members[0])
 	m.contextOffset = 0
 	m.detailOffset = 0
 	m.ensureVisible()
@@ -951,34 +1022,53 @@ func (m model) renderHeader(width int) string {
 }
 
 func (m model) renderRowsPane(rect rect) string {
-	lines := []string{rowListHeader(paneContentWidth(rect.w), m.sortMode)}
+	lines := []string{groupListHeader(paneContentWidth(rect.w), m.sortMode)}
 	if m.filterMode {
 		lines = append(lines, accentStyle().Render("filter> ")+m.query)
 	}
-	if len(m.filtered) == 0 {
+	if len(m.groups) == 0 {
 		lines = append(lines, mutedStyle(rect.w).Render("no rows match"))
 	} else {
-		for _, index := range m.visibleRows() {
-			item := m.items[m.filtered[index]]
-			selected := index == m.selected
+		current := m.currentGroupIndex()
+		for _, index := range m.visibleGroups() {
+			group := m.groups[index]
+			selected := index == current
+			prefix := "  "
+			if selected {
+				prefix = "> "
+			}
+			line := prefix + groupListLine(group, paneContentWidth(rect.w)-lipgloss.Width(prefix))
+			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusRows).Render(line))
+		}
+	}
+	return pane(m.groupPaneTitle(), m.groupPositionLabel(), lines, rect, focusRows, m.focus, rowsPaneAccent)
+}
+
+func (m model) renderContextPane(rect rect) string {
+	group, ok := m.currentGroup()
+	if !ok {
+		return pane(m.memberPaneTitle(), "", []string{"No group selected."}, rect, focusContext, m.focus, contextPaneAccent)
+	}
+	lines := []string{rowListHeader(paneContentWidth(rect.w), m.sortMode)}
+	members := m.currentGroupMembers()
+	if len(members) == 0 {
+		lines = append(lines, mutedStyle(rect.w).Render("no rows in group"))
+	} else {
+		selectedItem := m.currentItemIndex()
+		start := clampInt(m.contextOffset, 0, maxInt(0, len(members)-rowsViewportHeight(rect.h)))
+		end := minInt(len(members), start+rowsViewportHeight(rect.h))
+		for _, itemIndex := range members[start:end] {
+			item := m.items[itemIndex]
+			selected := itemIndex == selectedItem
 			prefix := "  "
 			if selected {
 				prefix = "> "
 			}
 			line := prefix + rowListLine(item, paneContentWidth(rect.w)-lipgloss.Width(prefix))
-			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusRows).Render(line))
+			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusContext).Render(line))
 		}
 	}
-	return pane("Rows", m.positionLabel(), lines, rect, focusRows, m.focus, rowsPaneAccent)
-}
-
-func (m model) renderContextPane(rect rect) string {
-	item, ok := m.selectedItem()
-	if !ok {
-		return pane("Context", "", []string{"No row selected."}, rect, focusContext, m.focus, contextPaneAccent)
-	}
-	lines := contextLines(item, paneContentWidth(rect.w))
-	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, focusContext, m.focus, contextPaneAccent, m.contextOffset)
+	return pane(m.memberPaneTitle(), group.Title, lines, rect, focusContext, m.focus, contextPaneAccent)
 }
 
 func (m model) renderDetailPane(rect rect) string {
@@ -989,8 +1079,8 @@ func (m model) renderDetailPane(rect rect) string {
 	if !ok {
 		return pane("Detail", "", []string{"No row selected."}, rect, focusDetail, m.focus, detailPaneAccent)
 	}
-	lines := detailLines(item)
-	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, focusDetail, m.focus, detailPaneAccent, m.detailOffset)
+	lines := m.detailLines(item)
+	return paneScrolled(m.detailPaneTitle(), paneFocusLabel(m.focus == focusDetail), lines, rect, focusDetail, m.focus, detailPaneAccent, m.detailOffset)
 }
 
 func (m model) renderFooter(width int) string {
@@ -1256,13 +1346,31 @@ func (m model) footerLocation() string {
 	return m.sourceKind + " " + location
 }
 
-func (m *model) move(delta int) {
-	if len(m.filtered) == 0 {
+func (m *model) moveGroup(delta int) {
+	if len(m.groups) == 0 {
 		m.selected = 0
 		m.offset = 0
 		return
 	}
-	m.selected = clampInt(m.selected+delta, 0, len(m.filtered)-1)
+	m.selectGroup(clampInt(m.currentGroupIndex()+delta, 0, len(m.groups)-1))
+}
+
+func (m *model) moveMember(delta int) {
+	members := m.currentGroupMembers()
+	if len(members) == 0 {
+		return
+	}
+	current := m.currentMemberOffset()
+	m.selectMemberOffset(clampInt(current+delta, 0, len(members)-1))
+}
+
+func (m *model) selectMemberOffset(offset int) {
+	members := m.currentGroupMembers()
+	if len(members) == 0 {
+		return
+	}
+	offset = clampInt(offset, 0, len(members)-1)
+	m.selectItemIndex(members[offset])
 	m.contextOffset = 0
 	m.detailOffset = 0
 	m.ensureVisible()
@@ -1271,11 +1379,11 @@ func (m *model) move(delta int) {
 func (m *model) scrollFocused(delta int) {
 	switch m.focus {
 	case focusContext:
-		m.contextOffset = clampInt(m.contextOffset+delta, 0, m.maxContextOffset())
+		m.moveMember(delta)
 	case focusDetail:
 		m.detailOffset = clampInt(m.detailOffset+delta, 0, m.maxDetailOffset())
 	default:
-		m.move(delta)
+		m.moveGroup(delta)
 	}
 }
 
@@ -1325,7 +1433,7 @@ func (m model) focusedPageSize() int {
 	layout := m.layout()
 	switch m.focus {
 	case focusContext:
-		return maxInt(1, paneContentHeight(layout.context.h))
+		return maxInt(1, rowsViewportHeight(layout.context.h))
 	case focusDetail:
 		return maxInt(1, paneContentHeight(layout.detail.h))
 	default:
@@ -1334,12 +1442,7 @@ func (m model) focusedPageSize() int {
 }
 
 func (m model) maxContextOffset() int {
-	item, ok := m.selectedItem()
-	if !ok {
-		return 0
-	}
-	layout := m.layout()
-	return maxPaneScroll(contextLines(item, paneContentWidth(layout.context.w)), layout.context)
+	return maxInt(0, len(m.currentGroupMembers())-rowsViewportHeight(m.layout().context.h))
 }
 
 func (m model) maxDetailOffset() int {
@@ -1348,7 +1451,7 @@ func (m model) maxDetailOffset() int {
 		return 0
 	}
 	layout := m.layout()
-	return maxPaneScroll(detailLines(item), layout.detail)
+	return maxPaneScroll(m.detailLines(item), layout.detail)
 }
 
 func (m *model) applyFilter() {
@@ -1361,9 +1464,11 @@ func (m *model) applyFilter() {
 		}
 	}
 	m.sortFiltered()
+	m.buildGroups()
 	if len(m.filtered) == 0 {
 		m.selected = 0
 		m.offset = 0
+		m.contextOffset = 0
 		return
 	}
 	if current >= 0 {
@@ -1405,15 +1510,147 @@ func (m *model) sortFiltered() {
 	})
 }
 
+func (m *model) buildGroups() {
+	byKey := make(map[string]int)
+	groups := make([]itemGroup, 0)
+	for _, itemIndex := range m.filtered {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		item := m.items[itemIndex]
+		key, title, kind, scope := m.groupFields(item)
+		groupIndex, ok := byKey[key]
+		if !ok {
+			groupIndex = len(groups)
+			byKey[key] = groupIndex
+			groups = append(groups, itemGroup{
+				Key:   key,
+				Title: title,
+				Kind:  kind,
+				Scope: scope,
+			})
+		}
+		group := &groups[groupIndex]
+		group.Members = append(group.Members, itemIndex)
+		group.Count++
+		if newerTimestamp(item.UpdatedAt, group.Latest) {
+			group.Latest = item.UpdatedAt
+		}
+		if newerTimestamp(item.CreatedAt, group.Latest) {
+			group.Latest = item.CreatedAt
+		}
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if less, ok := compareGroups(groups[i], groups[j], m.sortMode); ok {
+			return less
+		}
+		return strings.ToLower(groups[i].Title) < strings.ToLower(groups[j].Title)
+	})
+	m.groups = groups
+}
+
+func (m model) groupFields(item Item) (key, title, kind, scope string) {
+	switch m.layoutPreset {
+	case LayoutChat:
+		if container := strings.TrimSpace(item.Container); container != "" {
+			return "container:" + container, container, "channel", strings.TrimSpace(item.Scope)
+		}
+		if author := strings.TrimSpace(item.Author); author != "" {
+			return "author:" + author, author, "person", strings.TrimSpace(item.Scope)
+		}
+	case LayoutDocument:
+		if parent := strings.TrimSpace(item.ParentID); parent != "" {
+			return "parent:" + parent, parent, "parent", strings.TrimSpace(item.Scope)
+		}
+		if container := strings.TrimSpace(item.Container); container != "" {
+			return "container:" + container, container, "database", strings.TrimSpace(item.Scope)
+		}
+	}
+	for _, value := range []struct {
+		prefix string
+		title  string
+		kind   string
+	}{
+		{"container:", strings.TrimSpace(item.Container), "container"},
+		{"scope:", strings.TrimSpace(item.Scope), "scope"},
+		{"author:", strings.TrimSpace(item.Author), "person"},
+	} {
+		if value.title != "" {
+			return value.prefix + value.title, value.title, value.kind, strings.TrimSpace(item.Scope)
+		}
+	}
+	title = firstNonEmpty(item.Title, item.ID, itemKind(item), "row")
+	return "row:" + title, title, firstNonEmpty(itemKind(item), "row"), strings.TrimSpace(item.Scope)
+}
+
+func compareGroups(left, right itemGroup, mode sortMode) (bool, bool) {
+	switch mode {
+	case sortNewest:
+		return compareGroupTime(left, right, true)
+	case sortOldest:
+		return compareGroupTime(left, right, false)
+	case sortTitle, sortContainer:
+		return compareStrings(left.Title, right.Title)
+	case sortKind:
+		return compareStrings(left.Kind, right.Kind)
+	case sortScope:
+		return compareStrings(left.Scope, right.Scope)
+	case sortAuthor:
+		return compareStrings(left.Title, right.Title)
+	default:
+		if less, ok := compareGroupTime(left, right, true); ok {
+			return less, true
+		}
+		return false, false
+	}
+}
+
+func compareGroupTime(left, right itemGroup, newest bool) (bool, bool) {
+	leftTime, leftOK := parseTimestamp(left.Latest)
+	rightTime, rightOK := parseTimestamp(right.Latest)
+	if leftOK != rightOK {
+		return leftOK, true
+	}
+	if !leftOK {
+		return false, false
+	}
+	if leftTime.Equal(rightTime) {
+		return false, false
+	}
+	if newest {
+		return leftTime.After(rightTime), true
+	}
+	return leftTime.Before(rightTime), true
+}
+
+func newerTimestamp(candidate, current string) bool {
+	candidateTime, candidateOK := parseTimestamp(candidate)
+	if !candidateOK {
+		return false
+	}
+	currentTime, currentOK := parseTimestamp(current)
+	return !currentOK || candidateTime.After(currentTime)
+}
+
 func (m *model) ensureVisible() {
 	page := m.pageSize()
-	if m.selected < m.offset {
-		m.offset = m.selected
+	groupIndex := m.currentGroupIndex()
+	if groupIndex < m.offset {
+		m.offset = groupIndex
 	}
-	if m.selected >= m.offset+page {
-		m.offset = m.selected - page + 1
+	if groupIndex >= m.offset+page {
+		m.offset = groupIndex - page + 1
 	}
-	m.offset = clampInt(m.offset, 0, maxInt(len(m.filtered)-1, 0))
+	m.offset = clampInt(m.offset, 0, maxInt(len(m.groups)-1, 0))
+	memberPage := rowsViewportHeight(m.layout().context.h)
+	memberIndex := m.currentMemberOffset()
+	if memberIndex < m.contextOffset {
+		m.contextOffset = memberIndex
+	}
+	if memberIndex >= m.contextOffset+memberPage {
+		m.contextOffset = memberIndex - memberPage + 1
+	}
+	m.contextOffset = clampInt(m.contextOffset, 0, m.maxContextOffset())
 }
 
 func (m model) pageSize() int {
@@ -1423,6 +1660,15 @@ func (m model) pageSize() int {
 func (m model) visibleRows() []int {
 	end := minInt(len(m.filtered), m.offset+m.pageSize())
 	out := make([]int, 0, end-m.offset)
+	for i := m.offset; i < end; i++ {
+		out = append(out, i)
+	}
+	return out
+}
+
+func (m model) visibleGroups() []int {
+	end := minInt(len(m.groups), m.offset+m.pageSize())
+	out := make([]int, 0, maxInt(0, end-m.offset))
 	for i := m.offset; i < end; i++ {
 		out = append(out, i)
 	}
@@ -1515,6 +1761,60 @@ func (m model) selectedItem() (Item, bool) {
 	return m.items[index], true
 }
 
+func (m model) currentGroup() (itemGroup, bool) {
+	index := m.currentGroupIndex()
+	if index < 0 || index >= len(m.groups) {
+		return itemGroup{}, false
+	}
+	return m.groups[index], true
+}
+
+func (m model) currentGroupIndex() int {
+	itemIndex := m.currentItemIndex()
+	if itemIndex < 0 {
+		if len(m.groups) == 0 {
+			return 0
+		}
+		return clampInt(m.offset, 0, len(m.groups)-1)
+	}
+	for groupIndex, group := range m.groups {
+		for _, member := range group.Members {
+			if member == itemIndex {
+				return groupIndex
+			}
+		}
+	}
+	return 0
+}
+
+func (m model) currentGroupMembers() []int {
+	group, ok := m.currentGroup()
+	if !ok {
+		return nil
+	}
+	return group.Members
+}
+
+func (m model) currentMemberOffset() int {
+	itemIndex := m.currentItemIndex()
+	members := m.currentGroupMembers()
+	for index, member := range members {
+		if member == itemIndex {
+			return index
+		}
+	}
+	return 0
+}
+
+func (m *model) selectItemIndex(itemIndex int) {
+	for index, filteredIndex := range m.filtered {
+		if filteredIndex == itemIndex {
+			m.selected = index
+			return
+		}
+	}
+}
+
 func (s sortMode) Label() string {
 	switch s {
 	case sortNewest:
@@ -1602,6 +1902,42 @@ func (m model) positionLabel() string {
 		return "0/0"
 	}
 	return fmt.Sprintf("%d/%d", m.selected+1, len(m.filtered))
+}
+
+func (m model) groupPositionLabel() string {
+	if len(m.groups) == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("%d/%d groups", m.currentGroupIndex()+1, len(m.groups))
+}
+
+func (m model) groupPaneTitle() string {
+	switch m.layoutPreset {
+	case LayoutChat:
+		return "Channels / People"
+	case LayoutDocument:
+		return "Parents"
+	default:
+		return "Groups"
+	}
+}
+
+func (m model) memberPaneTitle() string {
+	switch m.layoutPreset {
+	case LayoutChat:
+		return "Messages"
+	case LayoutDocument:
+		return "Pages / Databases"
+	default:
+		return "Items"
+	}
+}
+
+func (m model) detailPaneTitle() string {
+	if m.layoutPreset == LayoutChat {
+		return "Thread"
+	}
+	return "Detail"
 }
 
 func nextFocus(focus paneFocus, delta int) paneFocus {
@@ -1780,16 +2116,68 @@ func contextLines(item Item, width int) []string {
 	return compactNonEmpty(lines)
 }
 
-func detailLines(item Item) []string {
+func (m model) detailLines(item Item) []string {
 	detail := strings.TrimSpace(item.Detail)
 	if detail == "" {
 		detail = item.Subtitle
 	}
 	lines := wrapLines(detail, 1000)
 	if len(lines) == 0 {
-		return []string{"No detail for this row."}
+		lines = []string{"No detail for this row."}
+	}
+	if m.layoutPreset == LayoutChat {
+		thread := m.threadLines(item)
+		if len(thread) > 0 {
+			lines = append(lines, "", "Thread")
+			lines = append(lines, thread...)
+		}
 	}
 	return lines
+}
+
+func (m model) threadLines(selected Item) []string {
+	key := threadKey(selected)
+	if key == "" {
+		return nil
+	}
+	var lines []string
+	for _, itemIndex := range m.currentGroupMembers() {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		item := m.items[itemIndex]
+		if threadKey(item) != key {
+			continue
+		}
+		prefix := shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt))
+		if author := itemAuthor(item); author != "" {
+			prefix = strings.TrimSpace(prefix + " " + author)
+		}
+		text := firstNonEmpty(item.Detail, item.Title)
+		if prefix != "" {
+			text = prefix + "  " + text
+		}
+		lines = append(lines, text)
+	}
+	if len(lines) <= 1 {
+		return nil
+	}
+	return lines
+}
+
+func threadKey(item Item) string {
+	for _, value := range []string{
+		fieldValue(item, "thread"),
+		fieldValue(item, "reply_to"),
+		strings.TrimSpace(item.ParentID),
+		fieldValue(item, "ts"),
+		strings.TrimSpace(item.ID),
+	} {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func rowListLine(item Item, width int) string {
@@ -1811,6 +2199,49 @@ func rowListLine(item Item, width int) string {
 	return padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(meta, metaW), metaW) + " " +
 		truncateCells(title, titleW)
+}
+
+func groupListLine(group itemGroup, width int) string {
+	width = maxInt(width, 1)
+	if width < 46 {
+		return truncateCells(group.Title, width)
+	}
+	kindW := minInt(maxInt(6, width/8), 10)
+	countW := minInt(maxInt(4, width/12), 7)
+	timeW := minInt(maxInt(12, width/5), 18)
+	titleW := maxInt(1, width-kindW-countW-timeW-3)
+	return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
+		padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+		padCells(truncateCells(shortTimestamp(group.Latest), timeW), timeW) + " " +
+		truncateCells(group.Title, titleW)
+}
+
+func groupListHeader(width int, active sortMode) string {
+	width = maxInt(width, 1)
+	if width < 46 {
+		return tagStyle(width).Render(padCells("GROUP", width))
+	}
+	kindW := minInt(maxInt(6, width/8), 10)
+	countW := minInt(maxInt(4, width/12), 7)
+	timeW := minInt(maxInt(12, width/5), 18)
+	titleW := maxInt(1, width-kindW-countW-timeW-3)
+	kind := "TYPE"
+	count := "COUNT"
+	when := "LATEST"
+	title := "GROUP"
+	switch active {
+	case sortKind:
+		kind = "TYPE v"
+	case sortNewest, sortOldest:
+		when = "LATEST v"
+	case sortTitle, sortContainer, sortAuthor:
+		title = "GROUP v"
+	}
+	line := padCells(truncateCells(kind, kindW), kindW) + " " +
+		padCells(truncateCells(count, countW), countW) + " " +
+		padCells(truncateCells(when, timeW), timeW) + " " +
+		truncateCells(title, titleW)
+	return tagStyle(width).Bold(true).Render(line)
 }
 
 func rowListHeader(width int, active sortMode) string {
