@@ -89,6 +89,31 @@ func TestChatLayoutIndentsReplyRows(t *testing.T) {
 	}
 }
 
+func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
+	m := newModel(Options{
+		Title: "discrawl archive",
+		Items: []Item{Row{
+			Source:    "discord",
+			Kind:      "message",
+			ID:        "m1",
+			Container: "general",
+			Author:    "vincent",
+			Title:     strings.Repeat("long message ", 30),
+			Text:      strings.Repeat("long message ", 30),
+			CreatedAt: "2026-05-02T12:00:00Z",
+		}.ItemForLayout(LayoutChat)},
+	})
+	m.width = 100
+	m.height = 18
+	view := m.View()
+	if strings.Contains(view, "general  vincent") {
+		t.Fatalf("rows pane should not append chat metadata:\n%s", view)
+	}
+	if !strings.Contains(view, "subtitle=general vincent") {
+		t.Fatalf("context pane should keep chat metadata:\n%s", view)
+	}
+}
+
 func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
 	item := Row{
 		Source:    "notion",

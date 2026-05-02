@@ -142,7 +142,12 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 	if layout == LayoutAuto {
 		layout = inferLayout([]Row{r})
 	}
-	title := firstNonEmpty(r.Title, r.Text, r.ID, "(untitled)")
+	rawTitle := firstNonEmpty(r.Title, r.Text, r.ID, "(untitled)")
+	title := compactTitle(rawTitle)
+	detail := r.detailForLayout(layout)
+	if strings.TrimSpace(detail) == "" && title != strings.TrimSpace(rawTitle) {
+		detail = strings.TrimSpace(rawTitle)
+	}
 	tags := append([]string(nil), r.Tags...)
 	if r.Kind != "" {
 		tags = append([]string{r.Kind}, tags...)
@@ -157,7 +162,7 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 	return Item{
 		Title:    title,
 		Subtitle: r.subtitleForLayout(layout),
-		Detail:   r.detailForLayout(layout),
+		Detail:   detail,
 		Tags:     tags,
 		Depth:    depth,
 	}
@@ -289,6 +294,20 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func compactTitle(value string) string {
+	value = strings.TrimSpace(strings.Join(strings.Fields(value), " "))
+	if value == "" {
+		return ""
+	}
+	for _, sep := range []string{". ", "\n"} {
+		if idx := strings.Index(value, sep); idx > 18 {
+			value = strings.TrimSpace(value[:idx+1])
+			break
+		}
+	}
+	return truncateCells(value, 140)
 }
 
 type model struct {
@@ -477,9 +496,6 @@ func (m model) renderRowsPane(rect rect) string {
 			if item.Depth > 0 {
 				line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
 			}
-			if item.Subtitle != "" {
-				line += "  " + item.Subtitle
-			}
 			line = truncateCells(prefix+line, paneContentWidth(rect.w))
 			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected && m.focus == focusRows).Render(line))
 		}
@@ -493,7 +509,7 @@ func (m model) renderContextPane(rect rect) string {
 		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, "#9bc53d")
 	}
 	lines := []string{
-		fieldLine("title", item.Title),
+		fieldLine("title", truncateCells(item.Title, maxInt(1, paneContentWidth(rect.w)-6))),
 		fieldLine("subtitle", item.Subtitle),
 	}
 	if len(item.Tags) > 0 {
