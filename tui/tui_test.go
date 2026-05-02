@@ -35,6 +35,16 @@ func TestBrowseJSONUsesUniversalRows(t *testing.T) {
 	}
 }
 
+func TestBrowseJSONEncodesNilRowsAsEmptyArray(t *testing.T) {
+	var out bytes.Buffer
+	if err := Browse(context.Background(), BrowseOptions{AppName: "discrawl", JSON: true, Stdout: &out}); err != nil {
+		t.Fatalf("Browse json: %v", err)
+	}
+	if strings.TrimSpace(out.String()) != "[]" {
+		t.Fatalf("json = %q, want []", out.String())
+	}
+}
+
 func TestRowItemUsesSharedArchiveShape(t *testing.T) {
 	item := Row{
 		Source:    "discord",

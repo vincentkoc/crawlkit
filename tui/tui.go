@@ -77,6 +77,9 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		opts.Stdout = os.Stdout
 	}
 	if opts.JSON {
+		if opts.Rows == nil {
+			opts.Rows = []Row{}
+		}
 		enc := json.NewEncoder(opts.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(opts.Rows)
