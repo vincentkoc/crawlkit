@@ -2118,18 +2118,64 @@ func contextLines(item Item, width int) []string {
 
 func (m model) detailLines(item Item) []string {
 	detail := strings.TrimSpace(item.Detail)
+	var lines []string
+	context := detailContextLines(item)
+	if len(context) > 0 {
+		lines = append(lines, "Context")
+		lines = append(lines, context...)
+	}
 	if detail == "" {
 		detail = item.Subtitle
 	}
-	lines := wrapLines(detail, 1000)
+	if detail != "" {
+		lines = append(lines, "", "Content")
+		lines = append(lines, wrapLines(detail, 1000)...)
+	}
 	if len(lines) == 0 {
-		lines = []string{"No detail for this row."}
+		lines = append(lines, "", "No detail for this row.")
 	}
 	if m.layoutPreset == LayoutChat {
 		thread := m.threadLines(item)
 		if len(thread) > 0 {
 			lines = append(lines, "", "Thread")
 			lines = append(lines, thread...)
+		}
+	}
+	return lines
+}
+
+func detailContextLines(item Item) []string {
+	var lines []string
+	for _, line := range []string{
+		fieldLine("container", item.Container),
+		fieldLine("author", item.Author),
+		fieldLine("kind", itemKind(item)),
+		fieldLine("source", item.Source),
+		fieldLine("scope", item.Scope),
+		fieldLine("created", shortTimestamp(item.CreatedAt)),
+		fieldLine("updated", shortTimestamp(item.UpdatedAt)),
+		fieldLine("id", item.ID),
+		fieldLine("parent", item.ParentID),
+		fieldLine("url", item.URL),
+		fieldLine("title", item.Title),
+	} {
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	if len(item.Tags) > 0 {
+		lines = append(lines, "tags="+strings.Join(item.Tags, " "))
+	}
+	if len(item.Fields) > 0 {
+		keys := make([]string, 0, len(item.Fields))
+		for key := range item.Fields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			if line := fieldLine(key, item.Fields[key]); line != "" {
+				lines = append(lines, line)
+			}
 		}
 	}
 	return lines
@@ -2186,106 +2232,135 @@ func rowListLine(item Item, width int) string {
 	if item.Depth > 0 {
 		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 	}
-	if width < 46 {
+	if width < 56 {
 		return truncateCells(title, width)
 	}
 	kind := rowKind(item)
 	when := rowWhen(item)
 	where := rowWhere(item)
-	meta := strings.TrimSpace(joinNonEmpty([]string{where, when}, " "))
-	kindW := minInt(maxInt(5, width/9), 10)
-	metaW := minInt(maxInt(12, width/4), 28)
-	titleW := maxInt(1, width-kindW-metaW-2)
+	author := itemAuthor(item)
+	kindW := minInt(maxInt(5, width/10), 10)
+	whenW := minInt(maxInt(10, width/6), 16)
+	whereW := minInt(maxInt(10, width/5), 22)
+	authorW := minInt(maxInt(8, width/7), 18)
+	titleW := maxInt(1, width-kindW-whenW-whereW-authorW-4)
 	return padCells(truncateCells(kind, kindW), kindW) + " " +
-		padCells(truncateCells(meta, metaW), metaW) + " " +
+		padCells(truncateCells(when, whenW), whenW) + " " +
+		padCells(truncateCells(where, whereW), whereW) + " " +
+		padCells(truncateCells(author, authorW), authorW) + " " +
 		truncateCells(title, titleW)
 }
 
 func groupListLine(group itemGroup, width int) string {
 	width = maxInt(width, 1)
-	if width < 46 {
+	if width < 56 {
 		return truncateCells(group.Title, width)
 	}
 	kindW := minInt(maxInt(6, width/8), 10)
 	countW := minInt(maxInt(4, width/12), 7)
 	timeW := minInt(maxInt(12, width/5), 18)
-	titleW := maxInt(1, width-kindW-countW-timeW-3)
+	scopeW := minInt(maxInt(8, width/7), 16)
+	titleW := maxInt(1, width-kindW-countW-timeW-scopeW-4)
 	return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
 		padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
 		padCells(truncateCells(shortTimestamp(group.Latest), timeW), timeW) + " " +
+		padCells(truncateCells(group.Scope, scopeW), scopeW) + " " +
 		truncateCells(group.Title, titleW)
 }
 
 func groupListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width < 46 {
+	if width < 56 {
 		return tagStyle(width).Render(padCells("GROUP", width))
 	}
 	kindW := minInt(maxInt(6, width/8), 10)
 	countW := minInt(maxInt(4, width/12), 7)
 	timeW := minInt(maxInt(12, width/5), 18)
-	titleW := maxInt(1, width-kindW-countW-timeW-3)
+	scopeW := minInt(maxInt(8, width/7), 16)
+	titleW := maxInt(1, width-kindW-countW-timeW-scopeW-4)
 	kind := "TYPE"
 	count := "COUNT"
 	when := "LATEST"
+	scope := "SCOPE"
 	title := "GROUP"
 	switch active {
 	case sortKind:
 		kind = "TYPE v"
 	case sortNewest, sortOldest:
 		when = "LATEST v"
+	case sortScope:
+		scope = "SCOPE v"
 	case sortTitle, sortContainer, sortAuthor:
 		title = "GROUP v"
 	}
 	line := padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(count, countW), countW) + " " +
 		padCells(truncateCells(when, timeW), timeW) + " " +
+		padCells(truncateCells(scope, scopeW), scopeW) + " " +
 		truncateCells(title, titleW)
 	return tagStyle(width).Bold(true).Render(line)
 }
 
 func rowListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width < 46 {
+	if width < 56 {
 		return tagStyle(width).Render(padCells("TITLE", width))
 	}
-	kindW := minInt(maxInt(5, width/9), 10)
-	metaW := minInt(maxInt(12, width/4), 28)
-	titleW := maxInt(1, width-kindW-metaW-2)
+	kindW := minInt(maxInt(5, width/10), 10)
+	whenW := minInt(maxInt(10, width/6), 16)
+	whereW := minInt(maxInt(10, width/5), 22)
+	authorW := minInt(maxInt(8, width/7), 18)
+	titleW := maxInt(1, width-kindW-whenW-whereW-authorW-4)
 	kind := "KIND"
-	meta := "WHERE / WHEN"
+	when := "WHEN"
+	where := "WHERE"
+	author := "AUTHOR"
 	title := "TITLE"
 	switch active {
 	case sortKind:
 		kind = "KIND v"
 	case sortScope, sortContainer, sortAuthor, sortNewest, sortOldest:
-		meta = "WHERE / WHEN v"
+		if active == sortAuthor {
+			author = "AUTHOR v"
+		} else if active == sortScope || active == sortContainer {
+			where = "WHERE v"
+		} else {
+			when = "WHEN v"
+		}
 	case sortTitle:
 		title = "TITLE v"
 	}
 	line := padCells(truncateCells(kind, kindW), kindW) + " " +
-		padCells(truncateCells(meta, metaW), metaW) + " " +
+		padCells(truncateCells(when, whenW), whenW) + " " +
+		padCells(truncateCells(where, whereW), whereW) + " " +
+		padCells(truncateCells(author, authorW), authorW) + " " +
 		truncateCells(title, titleW)
 	return tagStyle(width).Bold(true).Render(line)
 }
 
 func (m *model) sortRowsFromHeader(x int) {
 	width := paneContentWidth(m.layout().rows.w)
-	if width < 46 {
+	if width < 56 {
 		m.setSortMode(sortTitle)
 		return
 	}
-	kindW := minInt(maxInt(5, width/9), 10)
-	metaW := minInt(maxInt(12, width/4), 28)
+	kindW := minInt(maxInt(5, width/10), 10)
+	whenW := minInt(maxInt(10, width/6), 16)
+	whereW := minInt(maxInt(10, width/5), 22)
+	authorW := minInt(maxInt(8, width/7), 18)
 	switch {
 	case x < kindW:
 		m.setSortMode(sortKind)
-	case x < kindW+1+metaW:
+	case x < kindW+1+whenW:
 		if m.sortMode == sortNewest {
 			m.setSortMode(sortOldest)
 		} else {
 			m.setSortMode(sortNewest)
 		}
+	case x < kindW+1+whenW+1+whereW:
+		m.setSortMode(sortContainer)
+	case x < kindW+1+whenW+1+whereW+1+authorW:
+		m.setSortMode(sortAuthor)
 	default:
 		m.setSortMode(sortTitle)
 	}
