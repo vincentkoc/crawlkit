@@ -35,6 +35,11 @@ const (
 	LayoutDocument LayoutPreset = "document"
 )
 
+const (
+	SourceLocal  = "local"
+	SourceRemote = "remote"
+)
+
 type Row struct {
 	Source    string            `json:"source,omitempty"`
 	Kind      string            `json:"kind"`
@@ -54,22 +59,26 @@ type Row struct {
 }
 
 type Options struct {
-	Title        string
-	EmptyMessage string
-	Items        []Item
-	Stdin        io.Reader
-	Stdout       io.Writer
+	Title          string
+	EmptyMessage   string
+	Items          []Item
+	SourceKind     string
+	SourceLocation string
+	Stdin          io.Reader
+	Stdout         io.Writer
 }
 
 type BrowseOptions struct {
-	AppName      string
-	Title        string
-	EmptyMessage string
-	Rows         []Row
-	JSON         bool
-	Layout       LayoutPreset
-	Stdin        io.Reader
-	Stdout       io.Writer
+	AppName        string
+	Title          string
+	EmptyMessage   string
+	Rows           []Row
+	JSON           bool
+	Layout         LayoutPreset
+	SourceKind     string
+	SourceLocation string
+	Stdin          io.Reader
+	Stdout         io.Writer
 }
 
 func Browse(ctx context.Context, opts BrowseOptions) error {
@@ -107,11 +116,13 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		empty = opts.AppName + " has no local archive rows yet"
 	}
 	err := Run(ctx, Options{
-		Title:        title,
-		EmptyMessage: empty,
-		Items:        items,
-		Stdin:        opts.Stdin,
-		Stdout:       opts.Stdout,
+		Title:          title,
+		EmptyMessage:   empty,
+		Items:          items,
+		SourceKind:     opts.SourceKind,
+		SourceLocation: opts.SourceLocation,
+		Stdin:          opts.Stdin,
+		Stdout:         opts.Stdout,
 	})
 	if err != nil && errors.Is(err, ErrNotTerminal) {
 		app := strings.TrimSpace(opts.AppName)
@@ -281,31 +292,55 @@ func firstNonEmpty(values ...string) string {
 }
 
 type model struct {
-	title       string
-	items       []Item
-	filtered    []int
-	selected    int
-	offset      int
-	width       int
-	height      int
-	query       string
-	filterMode  bool
-	showDetails bool
+	title          string
+	items          []Item
+	filtered       []int
+	selected       int
+	offset         int
+	width          int
+	height         int
+	query          string
+	filterMode     bool
+	focus          paneFocus
+	sourceKind     string
+	sourceLocation string
 }
 
 func newModel(opts Options) model {
 	m := model{
-		title:       strings.TrimSpace(opts.Title),
-		items:       append([]Item(nil), opts.Items...),
-		width:       100,
-		height:      30,
-		showDetails: true,
+		title:          strings.TrimSpace(opts.Title),
+		items:          append([]Item(nil), opts.Items...),
+		width:          100,
+		height:         30,
+		focus:          focusRows,
+		sourceKind:     normalizeSourceKind(opts.SourceKind),
+		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 	}
 	if m.title == "" {
 		m.title = "archive"
 	}
 	m.applyFilter()
 	return m
+}
+
+type paneFocus int
+
+const (
+	focusRows paneFocus = iota
+	focusContext
+	focusDetail
+)
+
+type rect struct {
+	w int
+	h int
+}
+
+type archiveLayout struct {
+	rows    rect
+	context rect
+	detail  rect
+	stacked bool
 }
 
 func (m model) Init() tea.Cmd {
@@ -347,20 +382,36 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch typed.String() {
 		case "ctrl+c", "q":
 			return m, tea.Quit
+		case "tab", "right":
+			m.focus = nextFocus(m.focus, 1)
+		case "shift+tab", "left":
+			m.focus = nextFocus(m.focus, -1)
 		case "up", "k":
-			m.move(-1)
+			if m.focus == focusRows {
+				m.move(-1)
+			}
 		case "down", "j":
-			m.move(1)
+			if m.focus == focusRows {
+				m.move(1)
+			}
 		case "pgup", "ctrl+b":
-			m.move(-m.pageSize())
+			if m.focus == focusRows {
+				m.move(-m.pageSize())
+			}
 		case "pgdown", "ctrl+f":
-			m.move(m.pageSize())
+			if m.focus == focusRows {
+				m.move(m.pageSize())
+			}
 		case "home", "g":
-			m.selected = 0
-			m.ensureVisible()
+			if m.focus == focusRows {
+				m.selected = 0
+				m.ensureVisible()
+			}
 		case "end", "G":
-			m.selected = len(m.filtered) - 1
-			m.ensureVisible()
+			if m.focus == focusRows {
+				m.selected = len(m.filtered) - 1
+				m.ensureVisible()
+			}
 		case "/", "f":
 			m.filterMode = true
 		case "esc":
@@ -369,70 +420,126 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyFilter()
 			}
 		case "enter", " ":
-			m.showDetails = !m.showDetails
+			m.focus = focusDetail
 		}
 	}
 	return m, nil
 }
 
 func (m model) View() string {
-	var b strings.Builder
 	width := maxInt(m.width, 40)
-	b.WriteString(titleStyle(width).Render(truncateCells(m.title, width)))
-	b.WriteByte('\n')
-	status := fmt.Sprintf("%d rows", len(m.filtered))
+	height := maxInt(m.height, 12)
+	layout := m.layout()
+	header := m.renderHeader(width)
+	rows := m.renderRowsPane(layout.rows)
+	context := m.renderContextPane(layout.context)
+	detail := m.renderDetailPane(layout.detail)
+	footer := m.renderFooter(width)
+	var body string
+	if layout.stacked {
+		body = lipgloss.JoinVertical(lipgloss.Left, rows, context, detail)
+	} else {
+		right := lipgloss.JoinVertical(lipgloss.Left, context, detail)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, rows, right)
+	}
+	view := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	return fitBlock(view, width, height)
+}
+
+func (m model) renderHeader(width int) string {
+	status := fmt.Sprintf("%d/%d rows", len(m.filtered), len(m.items))
 	if m.query != "" {
 		status += " filtered by " + strconvQuote(m.query)
 	}
-	status += "  j/k move  / filter  enter details  q quit"
-	b.WriteString(mutedStyle(width).Render(truncateCells(status, width)))
-	b.WriteByte('\n')
+	line := m.title + "  " + status
 	if m.filterMode {
-		b.WriteString(accentStyle().Render("filter> "))
-		b.WriteString(truncateCells(m.query, maxInt(1, width-8)))
-		b.WriteByte('\n')
+		line += "  filter> " + m.query
 	}
-	b.WriteString(separator(width))
-	b.WriteByte('\n')
+	return titleStyle(width).Render(padCells(" "+truncateCells(line, maxInt(1, width-2)), width))
+}
+
+func (m model) renderRowsPane(rect rect) string {
+	var lines []string
+	if m.filterMode {
+		lines = append(lines, accentStyle().Render("filter> ")+m.query)
+	}
 	if len(m.filtered) == 0 {
-		b.WriteString(mutedStyle(width).Render("no rows match"))
-		return b.String()
+		lines = append(lines, mutedStyle(rect.w).Render("no rows match"))
+	} else {
+		for _, index := range m.visibleRows() {
+			item := m.items[m.filtered[index]]
+			selected := index == m.selected
+			prefix := "  "
+			if selected {
+				prefix = "> "
+			}
+			line := item.Title
+			if item.Depth > 0 {
+				line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
+			}
+			if item.Subtitle != "" {
+				line += "  " + item.Subtitle
+			}
+			line = truncateCells(prefix+line, paneContentWidth(rect.w))
+			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected && m.focus == focusRows).Render(line))
+		}
 	}
-	rows := m.visibleRows()
-	for _, index := range rows {
-		item := m.items[m.filtered[index]]
-		selected := index == m.selected
-		prefix := "  "
-		if selected {
-			prefix = "> "
-		}
-		line := item.Title
-		if item.Depth > 0 {
-			line = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + line
-		}
-		if item.Subtitle != "" {
-			line += "  " + item.Subtitle
-		}
-		line = truncateCells(prefix+line, width)
-		style := rowStyle(width, selected)
-		b.WriteString(style.Render(line))
-		b.WriteByte('\n')
+	return pane("Rows", m.positionLabel(), lines, rect, m.focus == focusRows, "#5bc0eb")
+}
+
+func (m model) renderContextPane(rect rect) string {
+	item, ok := m.selectedItem()
+	if !ok {
+		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, "#9bc53d")
 	}
-	if m.showDetails {
-		b.WriteString(separator(width))
-		b.WriteByte('\n')
-		item := m.items[m.filtered[m.selected]]
-		if len(item.Tags) > 0 {
-			b.WriteString(tagStyle(width).Render(truncateCells(strings.Join(item.Tags, "  "), width)))
-			b.WriteByte('\n')
-		}
-		detail := strings.TrimSpace(item.Detail)
-		if detail == "" {
-			detail = item.Subtitle
-		}
-		b.WriteString(wrap(detail, width))
+	lines := []string{
+		fieldLine("title", item.Title),
+		fieldLine("subtitle", item.Subtitle),
 	}
-	return b.String()
+	if len(item.Tags) > 0 {
+		lines = append(lines, "tags="+strings.Join(item.Tags, " "))
+	}
+	lines = compactNonEmpty(lines)
+	return pane("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, "#9bc53d")
+}
+
+func (m model) renderDetailPane(rect rect) string {
+	item, ok := m.selectedItem()
+	if !ok {
+		return pane("Detail", "", []string{"No row selected."}, rect, m.focus == focusDetail, "#f2c14e")
+	}
+	detail := strings.TrimSpace(item.Detail)
+	if detail == "" {
+		detail = item.Subtitle
+	}
+	lines := wrapLines(detail, paneContentWidth(rect.w))
+	if len(lines) == 0 {
+		lines = []string{"No detail for this row."}
+	}
+	return pane("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, "#f2c14e")
+}
+
+func (m model) renderFooter(width int) string {
+	line := "Ready"
+	if m.filterMode {
+		line = "Filtering"
+	}
+	if location := m.footerLocation(); location != "" {
+		line += "  " + location
+	}
+	controls := "Tab panes  j/k move  / filter  enter details  q quit"
+	bg, fg := footerPalette(m.sourceKind)
+	statusLine := padCells(" "+truncateCells(line, maxInt(1, width-2)), width)
+	controlsLine := padCells(" "+truncateCells(controls, maxInt(1, width-2)), width)
+	return lipgloss.NewStyle().Width(width).Height(2).Background(bg).Foreground(fg).Render(statusLine + "\n" + controlsLine)
+}
+
+func (m model) footerLocation() string {
+	location := strings.TrimSpace(m.sourceLocation)
+	if location == "" {
+		return m.sourceKind
+	}
+	return m.sourceKind + " " + location
 }
 
 func (m *model) move(delta int) {
@@ -474,14 +581,7 @@ func (m *model) ensureVisible() {
 }
 
 func (m model) pageSize() int {
-	reserved := 7
-	if m.filterMode {
-		reserved++
-	}
-	if !m.showDetails {
-		reserved -= 3
-	}
-	return maxInt(3, m.height-reserved)
+	return maxInt(1, paneContentHeight(m.layout().rows.h))
 }
 
 func (m model) visibleRows() []int {
@@ -489,6 +589,126 @@ func (m model) visibleRows() []int {
 	out := make([]int, 0, end-m.offset)
 	for i := m.offset; i < end; i++ {
 		out = append(out, i)
+	}
+	return out
+}
+
+func (m model) layout() archiveLayout {
+	width := maxInt(m.width, 40)
+	height := maxInt(m.height, 12)
+	bodyH := maxInt(6, height-3)
+	if width >= 96 {
+		rowsW := maxInt(38, width*44/100)
+		rightW := width - rowsW
+		contextH := minInt(maxInt(7, bodyH/3), maxInt(5, bodyH-4))
+		return archiveLayout{
+			rows:    rect{w: rowsW, h: bodyH},
+			context: rect{w: rightW, h: contextH},
+			detail:  rect{w: rightW, h: bodyH - contextH},
+		}
+	}
+	rowsH := maxInt(5, bodyH*42/100)
+	contextH := minInt(maxInt(4, bodyH*24/100), maxInt(3, bodyH-rowsH-3))
+	return archiveLayout{
+		rows:    rect{w: width, h: rowsH},
+		context: rect{w: width, h: contextH},
+		detail:  rect{w: width, h: bodyH - rowsH - contextH},
+		stacked: true,
+	}
+}
+
+func (m model) selectedItem() (Item, bool) {
+	if len(m.filtered) == 0 || m.selected < 0 || m.selected >= len(m.filtered) {
+		return Item{}, false
+	}
+	index := m.filtered[m.selected]
+	if index < 0 || index >= len(m.items) {
+		return Item{}, false
+	}
+	return m.items[index], true
+}
+
+func (m model) positionLabel() string {
+	if len(m.filtered) == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("%d/%d", m.selected+1, len(m.filtered))
+}
+
+func nextFocus(focus paneFocus, delta int) paneFocus {
+	next := int(focus) + delta
+	if next < int(focusRows) {
+		return focusDetail
+	}
+	if next > int(focusDetail) {
+		return focusRows
+	}
+	return paneFocus(next)
+}
+
+func paneFocusLabel(focused bool) string {
+	if focused {
+		return "focused"
+	}
+	return ""
+}
+
+func pane(title, subtitle string, lines []string, rect rect, focused bool, accent string) string {
+	width := maxInt(rect.w, 12)
+	height := maxInt(rect.h, 3)
+	contentW := paneContentWidth(width)
+	contentH := paneContentHeight(height)
+	borderColor := "#475569"
+	if focused {
+		borderColor = accent
+	}
+	titleLine := title
+	if strings.TrimSpace(subtitle) != "" {
+		titleLine += "  " + subtitle
+	}
+	top := "+" + strings.Repeat("-", maxInt(0, width-2)) + "+"
+	border := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
+	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#dfe7ef")).Bold(focused)
+	header := border.Render("|") +
+		headerStyle.Render(padCells(" "+truncateCells(titleLine, maxInt(1, contentW-1)), contentW)) +
+		border.Render("|")
+	body := make([]string, 0, contentH)
+	for _, line := range lines {
+		for _, wrapped := range wrapLines(line, contentW) {
+			body = append(body, wrapped)
+		}
+	}
+	if len(body) == 0 {
+		body = append(body, "")
+	}
+	for len(body) < contentH {
+		body = append(body, "")
+	}
+	if len(body) > contentH {
+		body = body[:contentH]
+	}
+	out := []string{border.Render(top), header}
+	for _, line := range body[:maxInt(0, contentH-1)] {
+		out = append(out, border.Render("|")+padCells(truncateCells(line, contentW), contentW)+border.Render("|"))
+	}
+	out = append(out, border.Render(top))
+	return strings.Join(out, "\n")
+}
+
+func paneContentWidth(width int) int {
+	return maxInt(1, width-2)
+}
+
+func paneContentHeight(height int) int {
+	return maxInt(1, height-3)
+}
+
+func compactNonEmpty(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
 	}
 	return out
 }
@@ -575,6 +795,67 @@ func wrap(value string, width int) string {
 	}
 	b.WriteString(value)
 	return b.String()
+}
+
+func wrapLines(value string, width int) []string {
+	width = maxInt(width, 1)
+	var out []string
+	for _, line := range strings.Split(strings.TrimSpace(value), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, strings.Split(wrap(line, width), "\n")...)
+	}
+	return out
+}
+
+func padCells(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(value) > width {
+		value = truncateCells(value, width)
+	}
+	for lipgloss.Width(value) < width {
+		value += " "
+	}
+	return value
+}
+
+func fitBlock(value string, width, height int) string {
+	width = maxInt(width, 1)
+	height = maxInt(height, 1)
+	lines := strings.Split(value, "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	for len(lines) < height {
+		lines = append(lines, "")
+	}
+	for i, line := range lines {
+		lines[i] = padCells(truncateCells(line, width), width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeSourceKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case SourceRemote:
+		return SourceRemote
+	default:
+		return SourceLocal
+	}
+}
+
+func footerPalette(source string) (lipgloss.Color, lipgloss.Color) {
+	switch normalizeSourceKind(source) {
+	case SourceRemote:
+		return lipgloss.Color("#f2c14e"), lipgloss.Color("#05070d")
+	default:
+		return lipgloss.Color("#5bc0eb"), lipgloss.Color("#05070d")
+	}
 }
 
 func strconvQuote(value string) string {

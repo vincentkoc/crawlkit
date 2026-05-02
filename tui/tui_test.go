@@ -128,6 +128,33 @@ func TestModelFilterAndRender(t *testing.T) {
 	}
 }
 
+func TestModelRenderUsesArchivePanesAndSourceFooter(t *testing.T) {
+	m := newModel(Options{
+		Title:          "notcrawl archive",
+		SourceKind:     SourceRemote,
+		SourceLocation: "git@example.com:archive/notcrawl.git",
+		Items: []Item{{
+			Title:    "Roadmap",
+			Subtitle: "page  workspace",
+			Detail:   "product plan",
+			Tags:     []string{"notion", "page"},
+		}},
+	})
+	m.width = 120
+	m.height = 24
+	view := m.View()
+	for _, want := range []string{"Rows", "Context", "Detail", "remote git@example.com:archive/notcrawl.git", "Roadmap", "product plan"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+	}
+	localBG, _ := footerPalette(SourceLocal)
+	remoteBG, _ := footerPalette(SourceRemote)
+	if localBG == remoteBG {
+		t.Fatal("local and remote footers should use different colors")
+	}
+}
+
 func TestModelRenderUsesCompleteANSISequencesWhenNarrow(t *testing.T) {
 	m := newModel(Options{
 		Title: "slacrawl archive",
