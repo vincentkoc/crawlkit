@@ -200,6 +200,30 @@ func TestMouseWheelBurstsAreBuffered(t *testing.T) {
 	}
 }
 
+func TestKeyInputCancelsQueuedWheel(t *testing.T) {
+	items := make([]Item, 0, 10)
+	for i := 0; i < 10; i++ {
+		items = append(items, Item{Title: fmt.Sprintf("row %02d", i), Tags: []string{"message"}})
+	}
+	m := newModel(Options{Title: "archive", Items: items})
+	updated, cmd := m.Update(tea.MouseMsg{Type: tea.MouseWheelDown})
+	m = updated.(model)
+	if cmd == nil || !m.wheelPending {
+		t.Fatal("wheel should queue before key input")
+	}
+	seq := m.wheelSeq
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(model)
+	if m.wheelPending || m.wheelDelta != 0 {
+		t.Fatalf("key input did not cancel queued wheel: pending=%v delta=%d", m.wheelPending, m.wheelDelta)
+	}
+	updated, _ = m.Update(wheelScrollMsg{seq: seq})
+	m = updated.(model)
+	if m.selected != 1 {
+		t.Fatalf("stale wheel changed selection after key input, selected=%d", m.selected)
+	}
+}
+
 func TestMouseWheelTargetsPaneUnderPointer(t *testing.T) {
 	m := newModel(Options{
 		Title: "discrawl archive",

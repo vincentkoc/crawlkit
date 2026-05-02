@@ -447,18 +447,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.focus = nextFocus(m.focus, 1)
 		case "shift+tab", "left":
 			m.focus = nextFocus(m.focus, -1)
-			case "up", "k":
-				if m.focus == focusRows {
-					m.move(-1)
-				} else {
-					m.scrollFocused(-1)
-				}
-			case "down", "j":
-				if m.focus == focusRows {
-					m.move(1)
-				} else {
-					m.scrollFocused(1)
-				}
+		case "up", "k":
+			if m.focus == focusRows {
+				m.move(-1)
+			} else {
+				m.scrollFocused(-1)
+			}
+		case "down", "j":
+			if m.focus == focusRows {
+				m.move(1)
+			} else {
+				m.scrollFocused(1)
+			}
 		case "pgup", "ctrl+b":
 			if m.focus == focusRows {
 				m.move(-m.pageSize())
