@@ -11,7 +11,7 @@ utilities.
 ## Install
 
 ```bash
-go get github.com/vincentkoc/crawlkit@v0.3.10
+go get github.com/vincentkoc/crawlkit@v0.3.11
 ```
 
 Go packages are published by tagging this repository. There is no separate
