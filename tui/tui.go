@@ -245,7 +245,7 @@ func Run(ctx context.Context, opts Options) error {
 		tea.WithInput(input),
 		tea.WithOutput(output),
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
+		tea.WithMouseAllMotion(),
 	)
 	_, err := program.Run()
 	return err
@@ -389,10 +389,15 @@ type model struct {
 	sourceKind     string
 	sourceLocation string
 	sortMode       sortMode
+	layoutMode     layoutMode
 	menuOpen       bool
 	menuTitle      string
+	menuContext    paneFocus
 	menuItems      []menuItem
 	menuIndex      int
+	menuOff        int
+	menuFloating   bool
+	menuRect       rect
 }
 
 type sortMode int
@@ -412,12 +417,15 @@ type menuAction int
 
 const (
 	actionClose menuAction = iota
+	actionSeparator
 	actionFocusRows
 	actionFocusContext
 	actionFocusDetail
 	actionSortMenu
 	actionHelpMenu
 	actionClearFilter
+	actionStartFilter
+	actionToggleLayout
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -433,6 +441,21 @@ type menuItem struct {
 	label  string
 	action menuAction
 }
+
+func (item menuItem) selectable() bool {
+	return item.action != actionSeparator
+}
+
+func menuSection(label string) menuItem {
+	return menuItem{label: label, action: actionSeparator}
+}
+
+type layoutMode string
+
+const (
+	layoutModeColumns    layoutMode = "columns"
+	layoutModeRightStack layoutMode = "right-stack"
+)
 
 func newModel(opts Options) model {
 	m := model{
@@ -471,6 +494,7 @@ type archiveLayout struct {
 	context rect
 	detail  rect
 	stacked bool
+	mode    string
 }
 
 func (m model) Init() tea.Cmd {
@@ -490,6 +514,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyQueuedWheelScroll()
 		return m, nil
 	case tea.MouseMsg:
+		if typed.Action == tea.MouseActionMotion && typed.Button == tea.MouseButtonNone {
+			if m.menuOpen {
+				m.handleMenuMouse(typed)
+			}
+			return m, nil
+		}
+		if m.menuOpen {
+			m.handleMenuMouse(typed)
+			return m, nil
+		}
 		switch {
 		case typed.Type == tea.MouseWheelUp || typed.Button == tea.MouseButtonWheelUp:
 			return m, m.queueWheelScroll(m.paneAt(typed.X, typed.Y), -3)
@@ -569,14 +603,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ensureVisible()
 			}
 		case "/", "f":
-			m.closeMenu()
-			m.filterMode = true
+			m.startFilter()
 		case "s":
 			m.openSortMenu()
 		case "m":
 			m.openActionMenu()
 		case "?":
 			m.openHelpMenu()
+		case "l":
+			m.toggleLayout()
 		case "esc":
 			if m.query != "" {
 				m.query = ""
@@ -591,18 +626,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *model) handleLeftClick(x, y int) {
 	layout := m.layout()
-	if m.menuOpen && layout.context.contains(x, y) {
-		if row, ok := m.menuRowAt(layout.context, y); ok {
-			m.menuIndex = row
-			_ = m.runMenuAction(m.menuItems[m.menuIndex].action)
-			return
-		}
-	}
 	m.closeMenu()
 	focus := m.paneAt(x, y)
 	m.focus = focus
 	if focus == focusRows {
-		m.selectRowAt(layout.rows, y)
+		m.selectRowAt(layout.rows, x, y)
 	}
 }
 
@@ -610,14 +638,19 @@ func (m *model) handleRightClick(x, y int) {
 	focus := m.paneAt(x, y)
 	m.focus = focus
 	if focus == focusRows {
-		m.selectRowAt(m.layout().rows, y)
+		m.selectRowAt(m.layout().rows, x, y)
 	}
-	m.openActionMenu()
+	m.openActionMenuFor(focus)
+	m.placeFloatingMenu(x, y)
 }
 
-func (m *model) selectRowAt(rect rect, y int) {
-	row := y - rect.y - 2
-	if row < 0 || row >= paneContentHeight(rect.h) {
+func (m *model) selectRowAt(rect rect, x, y int) {
+	row := y - rect.y - 3
+	if row == -1 {
+		m.sortRowsFromHeader(x - rect.x - 2)
+		return
+	}
+	if row < 0 || row >= rowsViewportHeight(rect.h) {
 		return
 	}
 	selected := m.offset + row
@@ -630,24 +663,90 @@ func (m *model) selectRowAt(rect rect, y int) {
 	m.ensureVisible()
 }
 
-func (m model) menuRowAt(rect rect, y int) (int, bool) {
-	row := y - rect.y - 2
-	if row < 0 || row >= len(m.menuItems) {
+func (m *model) handleMenuMouse(msg tea.MouseMsg) {
+	switch {
+	case msg.Type == tea.MouseWheelUp || msg.Button == tea.MouseButtonWheelUp:
+		m.menuIndex = m.nextSelectableMenuIndex(-1)
+		m.keepMenuVisible()
+		return
+	case msg.Type == tea.MouseWheelDown || msg.Button == tea.MouseButtonWheelDown:
+		m.menuIndex = m.nextSelectableMenuIndex(1)
+		m.keepMenuVisible()
+		return
+	case msg.Button == tea.MouseButtonRight && msg.Action == tea.MouseActionPress:
+		m.closeMenu()
+		return
+	}
+	index, ok := m.menuIndexAtMouse(msg.X, msg.Y)
+	if msg.Action == tea.MouseActionMotion {
+		if !ok || index < 0 || index >= len(m.menuItems) {
+			return
+		}
+		m.menuIndex = m.nearestSelectableMenuIndex(index, 1)
+		m.keepMenuVisible()
+		return
+	}
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		return
+	}
+	if !ok {
+		m.closeMenu()
+		return
+	}
+	if index < 0 || index >= len(m.menuItems) {
+		return
+	}
+	if !m.menuItems[index].selectable() {
+		m.menuIndex = m.nearestSelectableMenuIndex(index, 1)
+		m.keepMenuVisible()
+		return
+	}
+	m.menuIndex = index
+	m.keepMenuVisible()
+	_ = m.runMenuAction(m.menuItems[m.menuIndex].action)
+}
+
+func (m model) menuIndexAtMouse(x, y int) (int, bool) {
+	menuRect := m.layout().detail
+	rowOffset := 4
+	if m.menuFloating {
+		menuRect = m.menuRect
+	}
+	if !menuRect.contains(x, y) {
 		return 0, false
 	}
-	return row, true
+	return m.menuOff + y - menuRect.y - rowOffset, true
 }
 
 func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
+	page := maxInt(1, m.menuVisibleCount())
+	if index, ok := visibleMenuShortcutIndex(key.String(), m.menuItems, m.menuOff, page); ok {
+		m.menuIndex = index
+		return m.runMenuAction(m.menuItems[m.menuIndex].action)
+	}
 	switch key.String() {
 	case "ctrl+c":
 		return tea.Quit
 	case "esc", "q":
 		m.closeMenu()
 	case "up", "k":
-		m.menuIndex = clampInt(m.menuIndex-1, 0, maxInt(0, len(m.menuItems)-1))
+		m.menuIndex = m.nextSelectableMenuIndex(-1)
+		m.keepMenuVisible()
 	case "down", "j":
-		m.menuIndex = clampInt(m.menuIndex+1, 0, maxInt(0, len(m.menuItems)-1))
+		m.menuIndex = m.nextSelectableMenuIndex(1)
+		m.keepMenuVisible()
+	case "pgup", "ctrl+b":
+		m.menuIndex = m.nearestSelectableMenuIndex(m.menuIndex-page, -1)
+		m.keepMenuVisible()
+	case "pgdown", "ctrl+f":
+		m.menuIndex = m.nearestSelectableMenuIndex(m.menuIndex+page, 1)
+		m.keepMenuVisible()
+	case "home", "g":
+		m.menuIndex = m.firstSelectableMenuIndex()
+		m.keepMenuVisible()
+	case "end", "G":
+		m.menuIndex = m.lastSelectableMenuIndex()
+		m.keepMenuVisible()
 	case "enter", " ":
 		if len(m.menuItems) > 0 {
 			return m.runMenuAction(m.menuItems[m.menuIndex].action)
@@ -656,16 +755,28 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 		m.openSortMenu()
 	case "?":
 		m.openHelpMenu()
+	case "/":
+		m.startFilter()
+	case "l":
+		m.toggleLayout()
 	}
 	return nil
 }
 
 func (m *model) openActionMenu() {
+	m.openActionMenuFor(m.focus)
+}
+
+func (m *model) openActionMenuFor(context paneFocus) {
 	items := []menuItem{
+		menuSection("Pane"),
 		{label: "Focus rows pane", action: actionFocusRows},
 		{label: "Focus context pane", action: actionFocusContext},
 		{label: "Focus detail pane", action: actionFocusDetail},
+		menuSection("View"),
 		{label: "Sort rows", action: actionSortMenu},
+		{label: "Filter rows...", action: actionStartFilter},
+		{label: "Toggle wide layout", action: actionToggleLayout},
 	}
 	if m.query != "" {
 		items = append(items, menuItem{label: "Clear filter", action: actionClearFilter})
@@ -674,11 +785,13 @@ func (m *model) openActionMenu() {
 		menuItem{label: "Help", action: actionHelpMenu},
 		menuItem{label: "Close menu", action: actionClose},
 	)
+	m.menuContext = context
 	m.openMenu("Actions", items)
 }
 
 func (m *model) openSortMenu() {
 	m.openMenu("Sort", []menuItem{
+		menuSection("Order"),
 		{label: markActiveSort("Default", m.sortMode == sortDefault), action: actionSortDefault},
 		{label: markActiveSort("Newest", m.sortMode == sortNewest), action: actionSortNewest},
 		{label: markActiveSort("Oldest", m.sortMode == sortOldest), action: actionSortOldest},
@@ -692,10 +805,14 @@ func (m *model) openSortMenu() {
 
 func (m *model) openHelpMenu() {
 	m.openMenu("Help", []menuItem{
+		menuSection("Mouse"),
 		{label: "Tab/arrow: select pane", action: actionClose},
 		{label: "Mouse click: select pane/row", action: actionClose},
-		{label: "Right click or m: actions", action: actionClose},
+		{label: "Right click or m: floating actions", action: actionClose},
+		{label: "Click row header: sort", action: actionClose},
+		menuSection("Keyboard"),
 		{label: "s: sort rows", action: actionClose},
+		{label: "l: toggle layout", action: actionClose},
 		{label: "/: filter rows", action: actionClose},
 		{label: "j/k or wheel: scroll focused pane", action: actionClose},
 		{label: "enter: detail pane", action: actionClose},
@@ -707,8 +824,10 @@ func (m *model) openMenu(title string, items []menuItem) {
 	m.menuOpen = true
 	m.menuTitle = title
 	m.menuItems = append([]menuItem(nil), items...)
-	m.menuIndex = clampInt(m.menuIndex, 0, maxInt(0, len(m.menuItems)-1))
+	m.menuIndex = m.firstSelectableMenuIndex()
+	m.menuOff = 0
 	m.filterMode = false
+	m.keepMenuVisible()
 }
 
 func (m *model) closeMenu() {
@@ -716,6 +835,9 @@ func (m *model) closeMenu() {
 	m.menuTitle = ""
 	m.menuItems = nil
 	m.menuIndex = 0
+	m.menuOff = 0
+	m.menuFloating = false
+	m.menuRect = rect{}
 }
 
 func (m *model) runMenuAction(action menuAction) tea.Cmd {
@@ -739,6 +861,11 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 		m.query = ""
 		m.applyFilter()
 		m.closeMenu()
+	case actionStartFilter:
+		m.startFilter()
+	case actionToggleLayout:
+		m.toggleLayout()
+		m.closeMenu()
 	case actionSortDefault:
 		m.setSortMode(sortDefault)
 	case actionSortNewest:
@@ -761,6 +888,19 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 	return nil
 }
 
+func (m *model) startFilter() {
+	m.closeMenu()
+	m.filterMode = true
+}
+
+func (m *model) toggleLayout() {
+	if m.layoutMode == layoutModeRightStack {
+		m.layoutMode = layoutModeColumns
+		return
+	}
+	m.layoutMode = layoutModeRightStack
+}
+
 func (m model) View() string {
 	width := maxInt(m.width, 40)
 	height := maxInt(m.height, 12)
@@ -772,12 +912,25 @@ func (m model) View() string {
 	footer := m.renderFooter(width)
 	var body string
 	if layout.stacked {
-		body = lipgloss.JoinVertical(lipgloss.Left, rows, context, detail)
+		if layout.context.x == 0 {
+			body = lipgloss.JoinVertical(lipgloss.Left, rows, context, detail)
+		} else {
+			top := lipgloss.JoinHorizontal(lipgloss.Top, rows, context)
+			body = lipgloss.JoinVertical(lipgloss.Left, top, detail)
+		}
 	} else {
-		right := lipgloss.JoinVertical(lipgloss.Left, context, detail)
-		body = lipgloss.JoinHorizontal(lipgloss.Top, rows, right)
+		if layout.detail.y > layout.context.y {
+			right := lipgloss.JoinVertical(lipgloss.Left, context, detail)
+			body = lipgloss.JoinHorizontal(lipgloss.Top, rows, right)
+		} else {
+			body = lipgloss.JoinHorizontal(lipgloss.Top, rows, context, detail)
+		}
 	}
+	body = fitBlock(body, width, maxInt(1, layout.footerY()-1))
 	view := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	if m.menuOpen && m.menuFloating {
+		view = m.renderFloatingMenu(view)
+	}
 	return fitBlock(view, width, height)
 }
 
@@ -786,9 +939,8 @@ func (m model) renderHeader(width int) string {
 	if m.query != "" {
 		status += " filtered by " + strconvQuote(m.query)
 	}
-	if m.sortMode != sortDefault {
-		status += " sort " + m.sortMode.Label()
-	}
+	status += "  sort:" + m.sortMode.Label()
+	status += "  layout:" + m.layout().mode
 	line := m.title + "  " + status
 	if m.filterMode {
 		line += "  filter> " + m.query
@@ -799,7 +951,7 @@ func (m model) renderHeader(width int) string {
 }
 
 func (m model) renderRowsPane(rect rect) string {
-	var lines []string
+	lines := []string{rowListHeader(paneContentWidth(rect.w), m.sortMode)}
 	if m.filterMode {
 		lines = append(lines, accentStyle().Render("filter> ")+m.query)
 	}
@@ -817,28 +969,28 @@ func (m model) renderRowsPane(rect rect) string {
 			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusRows).Render(line))
 		}
 	}
-	return pane("Rows", m.positionLabel(), lines, rect, m.focus == focusRows, rowsPaneAccent)
+	return pane("Rows", m.positionLabel(), lines, rect, focusRows, m.focus, rowsPaneAccent)
 }
 
 func (m model) renderContextPane(rect rect) string {
-	if m.menuOpen {
-		return pane(m.menuTitle, "enter choose  esc close", m.menuLines(paneContentWidth(rect.w)), rect, true, contextPaneAccent)
-	}
 	item, ok := m.selectedItem()
 	if !ok {
-		return pane("Context", "", []string{"No row selected."}, rect, m.focus == focusContext, contextPaneAccent)
+		return pane("Context", "", []string{"No row selected."}, rect, focusContext, m.focus, contextPaneAccent)
 	}
 	lines := contextLines(item, paneContentWidth(rect.w))
-	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, m.focus == focusContext, contextPaneAccent, m.contextOffset)
+	return paneScrolled("Context", paneFocusLabel(m.focus == focusContext), lines, rect, focusContext, m.focus, contextPaneAccent, m.contextOffset)
 }
 
 func (m model) renderDetailPane(rect rect) string {
+	if m.menuOpen && !m.menuFloating {
+		return pane(m.menuTitle, "enter/1-9 choose  esc close", m.menuLines(paneContentWidth(rect.w)), rect, focusDetail, m.focus, detailPaneAccent)
+	}
 	item, ok := m.selectedItem()
 	if !ok {
-		return pane("Detail", "", []string{"No row selected."}, rect, m.focus == focusDetail, detailPaneAccent)
+		return pane("Detail", "", []string{"No row selected."}, rect, focusDetail, m.focus, detailPaneAccent)
 	}
 	lines := detailLines(item)
-	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, m.focus == focusDetail, detailPaneAccent, m.detailOffset)
+	return paneScrolled("Detail", paneFocusLabel(m.focus == focusDetail), lines, rect, focusDetail, m.focus, detailPaneAccent, m.detailOffset)
 }
 
 func (m model) renderFooter(width int) string {
@@ -851,7 +1003,7 @@ func (m model) renderFooter(width int) string {
 	if location := m.footerLocation(); location != "" {
 		line += "  " + location
 	}
-	controls := "Tab panes  click select  right-click/m menu  s sort  / filter  enter details  q quit"
+	controls := footerControls(width)
 	bg, fg := footerPalette(m.sourceKind)
 	statusLine := padCells(" "+truncateCells(line, maxInt(1, width-2)), width)
 	controlsLine := padCells(" "+truncateCells(controls, maxInt(1, width-2)), width)
@@ -862,15 +1014,238 @@ func (m model) menuLines(width int) []string {
 	if len(m.menuItems) == 0 {
 		return []string{"No actions."}
 	}
-	lines := make([]string, 0, len(m.menuItems))
-	for i, item := range m.menuItems {
+	palette := actionMenuColors(m.menuContext)
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.accent)).Render(firstNonEmpty(m.menuTitle, "Actions"))
+	lines := []string{title, dim(actionMenuSubtitle(m.menuContext)), ""}
+	visible := m.menuVisibleCount()
+	start := clampInt(m.menuOff, 0, maxInt(0, len(m.menuItems)-visible))
+	end := minInt(len(m.menuItems), start+visible)
+	shortcut := 0
+	for i := start; i < end; i++ {
+		item := m.menuItems[i]
+		if !item.selectable() {
+			lines = append(lines, truncateCells("  "+dim(item.label), width))
+			continue
+		}
+		shortcut++
 		prefix := "  "
 		if i == m.menuIndex {
 			prefix = "> "
 		}
-		lines = append(lines, truncateCells(prefix+item.label, width))
+		key := "   "
+		if shortcut <= 9 {
+			key = fmt.Sprintf("%d. ", shortcut)
+		}
+		line := truncateCells(prefix+key+item.label, width)
+		if i == m.menuIndex {
+			line = selectedMenuLineStyle(width, palette).Render(padCells(line, width))
+		}
+		lines = append(lines, line)
 	}
+	footer := "Enter/1-9 run  Esc close"
+	if len(m.menuItems) > visible {
+		footer = fmt.Sprintf("%s  Pg page  %d-%d/%d", footer, start+1, end, len(m.menuItems))
+	}
+	lines = append(lines, "", dim(footer))
 	return lines
+}
+
+type actionMenuPalette struct {
+	accent     string
+	background string
+	foreground string
+	selectedBG string
+	selectedFG string
+}
+
+func actionMenuColors(context paneFocus) actionMenuPalette {
+	switch context {
+	case focusRows:
+		return actionMenuPalette{
+			accent:     rowsPaneAccent,
+			background: "#111827",
+			foreground: "#d7dee8",
+			selectedBG: "#2f3f56",
+			selectedFG: "#f8fafc",
+		}
+	case focusContext:
+		return actionMenuPalette{
+			accent:     contextPaneAccent,
+			background: "#111a16",
+			foreground: "#d7dee8",
+			selectedBG: "#344337",
+			selectedFG: "#f8fafc",
+		}
+	default:
+		return actionMenuPalette{
+			accent:     detailPaneAccent,
+			background: "#151922",
+			foreground: "#d7dee8",
+			selectedBG: "#3f3a31",
+			selectedFG: "#f8fafc",
+		}
+	}
+}
+
+func actionMenuSubtitle(context paneFocus) string {
+	switch context {
+	case focusRows:
+		return "row scope"
+	case focusContext:
+		return "context scope"
+	case focusDetail:
+		return "detail scope"
+	default:
+		return "current selection"
+	}
+}
+
+func (m model) renderFloatingMenu(view string) string {
+	if m.menuRect.w <= 0 || m.menuRect.h <= 0 {
+		return view
+	}
+	lines := m.menuLines(maxInt(1, m.menuRect.w-2))
+	if len(lines) > maxInt(0, m.menuRect.h-2) {
+		lines = lines[:maxInt(0, m.menuRect.h-2)]
+	}
+	box := floatingMenuStyle(m.menuRect.w, m.menuRect.h, actionMenuColors(m.menuContext)).Render(strings.Join(lines, "\n"))
+	return overlayBlock(view, box, m.menuRect.x, m.menuRect.y, m.width)
+}
+
+func (m *model) placeFloatingMenu(x, y int) {
+	if !m.menuOpen {
+		return
+	}
+	maxWidth := maxInt(24, m.width-2)
+	width := clampInt(m.preferredMenuWidth(), 34, minInt(58, maxWidth))
+	availableHeight := maxInt(1, m.height-3)
+	visibleRows := minInt(maxInt(1, len(m.menuItems)), 12)
+	height := minInt(visibleRows+7, availableHeight)
+	if height < minInt(8, availableHeight) {
+		height = minInt(8, availableHeight)
+	}
+	maxX := maxInt(0, m.width-width)
+	minY := 1
+	maxY := maxInt(minY, m.height-2-height)
+	m.menuFloating = true
+	m.menuRect = rect{
+		x: clampInt(x+1, 0, maxX),
+		y: clampInt(y, minY, maxY),
+		w: width,
+		h: height,
+	}
+	m.keepMenuVisible()
+}
+
+func (m model) preferredMenuWidth() int {
+	width := lipgloss.Width(firstNonEmpty(m.menuTitle, "Actions")) + 4
+	for _, item := range m.menuItems {
+		width = maxInt(width, lipgloss.Width(item.label)+8)
+	}
+	return width
+}
+
+func (m model) menuVisibleCount() int {
+	if m.menuFloating && m.menuRect.h > 0 {
+		return maxInt(1, m.menuRect.h-7)
+	}
+	return maxInt(1, m.layout().detail.h-7)
+}
+
+func visibleMenuShortcutIndex(key string, items []menuItem, menuOff, visible int) (int, bool) {
+	if len(key) != 1 || key[0] < '1' || key[0] > '9' {
+		return 0, false
+	}
+	target := int(key[0] - '0')
+	shortcut := 0
+	end := minInt(len(items), menuOff+maxInt(1, visible))
+	for index := menuOff; index < end; index++ {
+		if !items[index].selectable() {
+			continue
+		}
+		shortcut++
+		if shortcut == target {
+			return index, true
+		}
+	}
+	return 0, false
+}
+
+func (m model) firstSelectableMenuIndex() int {
+	for index, item := range m.menuItems {
+		if item.selectable() {
+			return index
+		}
+	}
+	return 0
+}
+
+func (m model) lastSelectableMenuIndex() int {
+	for index := len(m.menuItems) - 1; index >= 0; index-- {
+		if m.menuItems[index].selectable() {
+			return index
+		}
+	}
+	return maxInt(0, len(m.menuItems)-1)
+}
+
+func (m model) nextSelectableMenuIndex(delta int) int {
+	if delta == 0 || len(m.menuItems) == 0 {
+		return m.menuIndex
+	}
+	for index := m.menuIndex + delta; index >= 0 && index < len(m.menuItems); index += delta {
+		if m.menuItems[index].selectable() {
+			return index
+		}
+	}
+	return m.menuIndex
+}
+
+func (m model) nearestSelectableMenuIndex(index, direction int) int {
+	if len(m.menuItems) == 0 {
+		return 0
+	}
+	index = clampInt(index, 0, len(m.menuItems)-1)
+	if m.menuItems[index].selectable() {
+		return index
+	}
+	if direction == 0 {
+		direction = 1
+	}
+	for next := index + direction; next >= 0 && next < len(m.menuItems); next += direction {
+		if m.menuItems[next].selectable() {
+			return next
+		}
+	}
+	return m.firstSelectableMenuIndex()
+}
+
+func (m *model) keepMenuVisible() {
+	if len(m.menuItems) == 0 {
+		m.menuOff = 0
+		return
+	}
+	visible := m.menuVisibleCount()
+	m.menuIndex = m.nearestSelectableMenuIndex(m.menuIndex, 1)
+	if m.menuIndex < m.menuOff {
+		m.menuOff = m.menuIndex
+	}
+	if m.menuIndex >= m.menuOff+visible {
+		m.menuOff = m.menuIndex - visible + 1
+	}
+	m.menuOff = clampInt(m.menuOff, 0, maxInt(0, len(m.menuItems)-visible))
+}
+
+func footerControls(width int) string {
+	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  l layout  wheel scroll  / filter  ? help  q quit"
+	if lipgloss.Width(full) <= maxInt(1, width-2) {
+		return full
+	}
+	compact := "Tab focus  click select  right-click menu  s sort  / filter  ? help  q quit"
+	if lipgloss.Width(compact) <= maxInt(1, width-2) {
+		return compact
+	}
+	return "Tab focus click menu s sort / filter ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -1042,7 +1417,7 @@ func (m *model) ensureVisible() {
 }
 
 func (m model) pageSize() int {
-	return maxInt(1, paneContentHeight(m.layout().rows.h))
+	return maxInt(1, rowsViewportHeight(m.layout().rows.h))
 }
 
 func (m model) visibleRows() []int {
@@ -1055,27 +1430,60 @@ func (m model) visibleRows() []int {
 }
 
 func (m model) layout() archiveLayout {
-	width := maxInt(m.width, 40)
-	height := maxInt(m.height, 12)
-	bodyH := maxInt(6, height-3)
-	if width >= 96 {
-		rowsW := maxInt(38, width*44/100)
-		rightW := width - rowsW
-		contextH := minInt(maxInt(7, bodyH/3), maxInt(5, bodyH-4))
+	width := maxInt(m.width, 80)
+	height := maxInt(m.height, 16)
+	bodyH := maxInt(8, height-3)
+	if width >= 140 {
+		if m.layoutMode == layoutModeRightStack {
+			rowsW := maxInt(56, width*44/100)
+			rightW := width - rowsW
+			contextH := maxInt(8, bodyH*42/100)
+			return archiveLayout{
+				rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
+				context: rect{x: rowsW, y: 1, w: rightW, h: contextH},
+				detail:  rect{x: rowsW, y: 1 + contextH, w: rightW, h: bodyH - contextH},
+				mode:    string(layoutModeRightStack),
+			}
+		}
+		rowsW := maxInt(48, width*34/100)
+		contextW := maxInt(40, width*28/100)
+		detailW := width - rowsW - contextW
+		if detailW < 42 {
+			detailW = 42
+			contextW = maxInt(30, width-rowsW-detailW)
+		}
 		return archiveLayout{
 			rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
-			context: rect{x: rowsW, y: 1, w: rightW, h: contextH},
-			detail:  rect{x: rowsW, y: 1 + contextH, w: rightW, h: bodyH - contextH},
+			context: rect{x: rowsW, y: 1, w: contextW, h: bodyH},
+			detail:  rect{x: rowsW + contextW, y: 1, w: width - rowsW - contextW, h: bodyH},
+			mode:    string(layoutModeColumns),
 		}
 	}
-	rowsH := maxInt(5, bodyH*42/100)
-	contextH := minInt(maxInt(4, bodyH*24/100), maxInt(3, bodyH-rowsH-3))
+	if width >= 100 {
+		topH := maxInt(8, bodyH/2)
+		rowsW := width / 2
+		return archiveLayout{
+			rows:    rect{x: 0, y: 1, w: rowsW, h: topH},
+			context: rect{x: rowsW, y: 1, w: width - rowsW, h: topH},
+			detail:  rect{x: 0, y: 1 + topH, w: width, h: bodyH - topH},
+			stacked: true,
+			mode:    "split",
+		}
+	}
+	rowsH := minInt(maxInt(5, bodyH*36/100), maxInt(3, bodyH-6))
+	contextH := minInt(maxInt(4, bodyH*28/100), maxInt(3, bodyH-rowsH-3))
+	detailH := maxInt(3, bodyH-rowsH-contextH)
 	return archiveLayout{
 		rows:    rect{x: 0, y: 1, w: width, h: rowsH},
 		context: rect{x: 0, y: 1 + rowsH, w: width, h: contextH},
-		detail:  rect{x: 0, y: 1 + rowsH + contextH, w: width, h: bodyH - rowsH - contextH},
+		detail:  rect{x: 0, y: 1 + rowsH + contextH, w: width, h: detailH},
 		stacked: true,
+		mode:    "stacked",
 	}
+}
+
+func (l archiveLayout) footerY() int {
+	return maxInt(l.rows.y+l.rows.h, maxInt(l.context.y+l.context.h, l.detail.y+l.detail.h))
 }
 
 func (m model) paneAt(x, y int) paneFocus {
@@ -1214,11 +1622,41 @@ func paneFocusLabel(focused bool) string {
 	return ""
 }
 
-func pane(title, subtitle string, lines []string, rect rect, focused bool, accent string) string {
-	return paneScrolled(title, subtitle, lines, rect, focused, accent, 0)
+func paneTitle(pane, focus paneFocus, suffix string) string {
+	label := map[paneFocus]string{
+		focusRows:    "Rows",
+		focusContext: "Context",
+		focusDetail:  "Detail",
+	}[pane]
+	if strings.TrimSpace(suffix) != "" && strings.TrimSpace(suffix) != label {
+		label += " " + suffix
+	}
+	prefix := "[ ] "
+	if pane == focus {
+		prefix = "[*] "
+	}
+	return bold(prefix + label)
 }
 
-func paneScrolled(title, subtitle string, lines []string, rect rect, focused bool, accent string, scrollOffset int) string {
+func paneStyle(pane, focus paneFocus, width, height int, accent string) lipgloss.Style {
+	borderColor := accent
+	if pane == focus {
+		borderColor = "#f7f7ff"
+	}
+	return lipgloss.NewStyle().
+		Width(maxInt(1, width-2)).
+		Height(maxInt(1, height-2)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(borderColor)).
+		Foreground(lipgloss.Color(archiveTextFG)).
+		Padding(0, 1)
+}
+
+func pane(title, subtitle string, lines []string, rect rect, paneFocus paneFocus, focus paneFocus, accent string) string {
+	return paneScrolled(title, subtitle, lines, rect, paneFocus, focus, accent, 0)
+}
+
+func paneScrolled(title, subtitle string, lines []string, rect rect, paneFocus paneFocus, focus paneFocus, accent string, scrollOffset int) string {
 	width := maxInt(rect.w, 12)
 	height := maxInt(rect.h, 3)
 	contentW := paneContentWidth(width)
@@ -1238,30 +1676,17 @@ func paneScrolled(title, subtitle string, lines []string, rect rect, focused boo
 			subtitle += "  " + scrollLabel
 		}
 	}
-	borderColor := archiveBorderColor
-	if focused {
-		borderColor = accent
-	}
 	titleLine := title
 	if strings.TrimSpace(subtitle) != "" {
 		titleLine += "  " + subtitle
 	}
-	top := "+" + strings.Repeat("-", maxInt(0, width-2)) + "+"
-	border := lipgloss.NewStyle().Foreground(lipgloss.Color(borderColor))
-	headerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(archiveHeaderFG)).Bold(focused)
-	header := border.Render("|") +
-		headerStyle.Render(padCells(" "+truncateCells(titleLine, maxInt(1, contentW-1)), contentW)) +
-		border.Render("|")
+	header := paneTitle(paneFocus, focus, titleLine)
 	body = append([]string(nil), body[scrollOffset:minInt(len(body), scrollOffset+contentH)]...)
 	for len(body) < contentH {
 		body = append(body, "")
 	}
-	out := []string{border.Render(top), header}
-	for _, line := range body[:contentH] {
-		out = append(out, border.Render("|")+padCells(truncateCells(line, contentW), contentW)+border.Render("|"))
-	}
-	out = append(out, border.Render(top))
-	return strings.Join(out, "\n")
+	out := append([]string{header}, body[:contentH]...)
+	return paneStyle(paneFocus, focus, width, height, accent).Render(strings.Join(out, "\n"))
 }
 
 func flattenedPaneLines(lines []string, width int) []string {
@@ -1281,11 +1706,15 @@ func maxPaneScroll(lines []string, rect rect) int {
 }
 
 func paneContentWidth(width int) int {
-	return maxInt(1, width-2)
+	return maxInt(1, width-4)
 }
 
 func paneContentHeight(height int) int {
 	return maxInt(1, height-3)
+}
+
+func rowsViewportHeight(height int) int {
+	return maxInt(1, paneContentHeight(height)-1)
 }
 
 func compactNonEmpty(lines []string) []string {
@@ -1382,6 +1811,53 @@ func rowListLine(item Item, width int) string {
 	return padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(meta, metaW), metaW) + " " +
 		truncateCells(title, titleW)
+}
+
+func rowListHeader(width int, active sortMode) string {
+	width = maxInt(width, 1)
+	if width < 46 {
+		return tagStyle(width).Render(padCells("TITLE", width))
+	}
+	kindW := minInt(maxInt(5, width/9), 10)
+	metaW := minInt(maxInt(12, width/4), 28)
+	titleW := maxInt(1, width-kindW-metaW-2)
+	kind := "KIND"
+	meta := "WHERE / WHEN"
+	title := "TITLE"
+	switch active {
+	case sortKind:
+		kind = "KIND v"
+	case sortScope, sortContainer, sortAuthor, sortNewest, sortOldest:
+		meta = "WHERE / WHEN v"
+	case sortTitle:
+		title = "TITLE v"
+	}
+	line := padCells(truncateCells(kind, kindW), kindW) + " " +
+		padCells(truncateCells(meta, metaW), metaW) + " " +
+		truncateCells(title, titleW)
+	return tagStyle(width).Bold(true).Render(line)
+}
+
+func (m *model) sortRowsFromHeader(x int) {
+	width := paneContentWidth(m.layout().rows.w)
+	if width < 46 {
+		m.setSortMode(sortTitle)
+		return
+	}
+	kindW := minInt(maxInt(5, width/9), 10)
+	metaW := minInt(maxInt(12, width/4), 28)
+	switch {
+	case x < kindW:
+		m.setSortMode(sortKind)
+	case x < kindW+1+metaW:
+		if m.sortMode == sortNewest {
+			m.setSortMode(sortOldest)
+		} else {
+			m.setSortMode(sortNewest)
+		}
+	default:
+		m.setSortMode(sortTitle)
+	}
 }
 
 func rowKind(item Item) string {
@@ -1541,8 +2017,16 @@ func titleStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color(archiveHeaderFG)).
-		Background(lipgloss.Color(archiveHeaderBG)).
+		Background(lipgloss.Color("#0d1321")).
 		Width(width)
+}
+
+func bold(value string) string {
+	return lipgloss.NewStyle().Bold(true).Render(value)
+}
+
+func dim(value string) string {
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveMutedFG)).Render(value)
 }
 
 func mutedStyle(width int) lipgloss.Style {
@@ -1576,11 +2060,57 @@ func rowStyle(width int, selected bool, focused bool) lipgloss.Style {
 	return style.Foreground(lipgloss.Color(archiveTextFG))
 }
 
+func floatingMenuStyle(width, height int, palette actionMenuPalette) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(maxInt(1, width-2)).
+		Height(maxInt(1, height-2)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color(palette.accent)).
+		Background(lipgloss.Color(palette.background)).
+		Foreground(lipgloss.Color(palette.foreground))
+}
+
+func selectedMenuLineStyle(width int, palette actionMenuPalette) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(maxInt(1, width)).
+		Background(lipgloss.Color(palette.selectedBG)).
+		Foreground(lipgloss.Color(palette.selectedFG)).
+		Bold(true)
+}
+
 func separator(width int) string {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(archiveBorderColor)).
 		Width(width).
 		Render(strings.Repeat("-", minInt(width, 120)))
+}
+
+func overlayBlock(base, block string, x, y, width int) string {
+	baseLines := strings.Split(base, "\n")
+	blockLines := strings.Split(block, "\n")
+	for offset, line := range blockLines {
+		row := y + offset
+		if row < 0 || row >= len(baseLines) {
+			continue
+		}
+		baseLine := baseLines[row]
+		prefix := strings.Repeat(" ", maxInt(0, x))
+		if x > 0 && baseLine != "" {
+			prefix = padCells(ansi.Cut(baseLine, 0, x), x)
+		}
+		lineWidth := ansi.StringWidth(line)
+		suffixStart := maxInt(0, x+lineWidth)
+		suffix := ""
+		if suffixStart < ansi.StringWidth(baseLine) {
+			suffix = ansi.Cut(baseLine, suffixStart, width)
+		}
+		rendered := prefix + line + suffix
+		if width > 0 {
+			rendered = truncateCells(rendered, width)
+		}
+		baseLines[row] = rendered
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 func truncateCells(value string, width int) string {

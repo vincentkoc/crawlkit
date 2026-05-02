@@ -275,7 +275,7 @@ func TestLeftClickSelectsRowUnderPointer(t *testing.T) {
 	layout := m.layout()
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.rows.x + 2,
-		Y:      layout.rows.y + 4,
+		Y:      layout.rows.y + 5,
 		Button: tea.MouseButtonLeft,
 		Action: tea.MouseActionPress,
 	})
@@ -305,7 +305,7 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	layout := m.layout()
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.rows.x + 2,
-		Y:      layout.rows.y + 3,
+		Y:      layout.rows.y + 4,
 		Button: tea.MouseButtonRight,
 		Action: tea.MouseActionPress,
 	})
@@ -335,11 +335,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 	if !m.menuOpen || m.menuTitle != "Sort" {
 		t.Fatalf("sort menu open=%v title=%q", m.menuOpen, m.menuTitle)
 	}
-	for m.menuIndex < 3 {
-		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
-		m = updated.(model)
-	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
 	m = updated.(model)
 	if m.sortMode != sortTitle {
 		t.Fatalf("sort mode = %v, want title", m.sortMode)
@@ -354,7 +350,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 		t.Fatalf("first sorted item = %#v ok=%v", item, ok)
 	}
 	view := m.View()
-	if !strings.Contains(view, "sort title") {
+	if !strings.Contains(view, "sort:title") {
 		t.Fatalf("header missing sort status:\n%s", view)
 	}
 }
@@ -387,6 +383,97 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestWideLayoutUsesThreeColumnsByDefault(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
+	})
+	m.width = 160
+	m.height = 30
+	layout := m.layout()
+	if layout.mode != string(layoutModeColumns) {
+		t.Fatalf("layout mode = %q, want columns", layout.mode)
+	}
+	if layout.rows.y != layout.context.y || layout.context.y != layout.detail.y {
+		t.Fatalf("wide panes should share the same row: %#v", layout)
+	}
+	if layout.rows.x != 0 || layout.context.x <= layout.rows.x || layout.detail.x <= layout.context.x {
+		t.Fatalf("wide panes should progress left-to-right: %#v", layout)
+	}
+}
+
+func TestLayoutToggleUsesRightStackMode(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
+	})
+	m.width = 160
+	m.height = 30
+	m.toggleLayout()
+	layout := m.layout()
+	if layout.mode != string(layoutModeRightStack) {
+		t.Fatalf("layout mode = %q, want right-stack", layout.mode)
+	}
+	if layout.context.x != layout.detail.x || layout.detail.y <= layout.context.y {
+		t.Fatalf("right stack should place context over detail: %#v", layout)
+	}
+}
+
+func TestRightClickPlacesFloatingMenu(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
+	})
+	m.width = 160
+	m.height = 24
+	layout := m.layout()
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.rows.x + 4,
+		Y:      layout.rows.y + 3,
+		Button: tea.MouseButtonRight,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if !m.menuOpen || !m.menuFloating {
+		t.Fatalf("menu open=%v floating=%v", m.menuOpen, m.menuFloating)
+	}
+	if m.menuRect.w <= 0 || m.menuRect.h <= 0 {
+		t.Fatalf("menu rect not placed: %#v", m.menuRect)
+	}
+	view := m.View()
+	if !strings.Contains(view, "Pane") || !strings.Contains(view, "Toggle wide layout") {
+		t.Fatalf("floating menu missing expected sections:\n%s", view)
+	}
+}
+
+func TestClickingRowsHeaderSorts(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "page", Title: "Zulu"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "page", Title: "Alpha"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	m.width = 160
+	m.height = 24
+	layout := m.layout()
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.rows.x + layout.rows.w - 8,
+		Y:      layout.rows.y + 2,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if m.sortMode != sortTitle {
+		t.Fatalf("sort mode = %v, want title", m.sortMode)
+	}
+	m.selected = 0
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "Alpha" {
+		t.Fatalf("first sorted item = %#v ok=%v", item, ok)
 	}
 }
 
