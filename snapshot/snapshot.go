@@ -37,6 +37,7 @@ type ImportOptions struct {
 	RootDir      string
 	DeleteTables []string
 	DeleteTable  DeleteFunc
+	Filter       RowFilter
 	BeforeImport func(context.Context, *sql.Tx) error
 	AfterImport  func(context.Context, *sql.Tx) error
 }
@@ -158,7 +159,7 @@ func Import(ctx context.Context, opts ImportOptions) (Manifest, error) {
 		}
 	}
 	for _, table := range manifest.Tables {
-		if err := importTable(ctx, tx, opts.RootDir, table); err != nil {
+		if err := importTable(ctx, tx, opts.RootDir, table, opts.Filter); err != nil {
 			return Manifest{}, err
 		}
 	}
@@ -267,17 +268,21 @@ func exportTable(ctx context.Context, db *sql.DB, rootDir, table string, maxShar
 	return TableManifest{Name: table, Files: writer.files, Columns: cols, Rows: count}, nil
 }
 
-func importTable(ctx context.Context, tx *sql.Tx, rootDir string, table TableManifest) error {
-	if len(table.Files) == 0 {
+func importTable(ctx context.Context, tx *sql.Tx, rootDir string, table TableManifest, filter RowFilter) error {
+	files := table.Files
+	if len(files) == 0 && strings.TrimSpace(table.File) != "" {
+		files = []string{table.File}
+	}
+	if len(files) == 0 {
 		return nil
 	}
-	for _, rel := range table.Files {
+	for _, rel := range files {
 		path := filepath.Join(rootDir, filepath.FromSlash(rel))
 		file, err := os.Open(path)
 		if err != nil {
 			return fmt.Errorf("open %s: %w", rel, err)
 		}
-		if err := importJSONLGzip(ctx, tx, file, table.Name); err != nil {
+		if err := importJSONLGzip(ctx, tx, file, table.Name, filter); err != nil {
 			_ = file.Close()
 			return err
 		}
@@ -288,7 +293,7 @@ func importTable(ctx context.Context, tx *sql.Tx, rootDir string, table TableMan
 	return nil
 }
 
-func importJSONLGzip(ctx context.Context, tx *sql.Tx, reader io.Reader, table string) error {
+func importJSONLGzip(ctx context.Context, tx *sql.Tx, reader io.Reader, table string, filter RowFilter) error {
 	gz, err := gzip.NewReader(reader)
 	if err != nil {
 		return fmt.Errorf("open gzip for %s: %w", table, err)
@@ -303,6 +308,15 @@ func importJSONLGzip(ctx context.Context, tx *sql.Tx, reader io.Reader, table st
 		}
 		if len(row) == 0 {
 			continue
+		}
+		if filter != nil {
+			keep, err := filter(table, row)
+			if err != nil {
+				return fmt.Errorf("filter %s row: %w", table, err)
+			}
+			if !keep {
+				continue
+			}
 		}
 		if err := insertRow(ctx, tx, table, row); err != nil {
 			return err

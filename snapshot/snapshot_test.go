@@ -1,8 +1,11 @@
 package snapshot
 
 import (
+	"compress/gzip"
 	"context"
 	"database/sql"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -142,9 +145,120 @@ func TestImportHooks(t *testing.T) {
 	}
 }
 
+func TestImportLegacySingularFileManifest(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	rel := filepath.ToSlash(filepath.Join("tables", "things", "legacy.jsonl.gz"))
+	writeGzipJSONL(t, filepath.Join(root, filepath.FromSlash(rel)), map[string]any{"id": "new", "body": "from legacy"})
+	if err := WriteManifest(root, Manifest{
+		Version:     1,
+		GeneratedAt: time.Date(2026, 5, 2, 9, 0, 0, 0, time.UTC),
+		Tables: []TableManifest{{
+			Name:    "things",
+			File:    rel,
+			Columns: []string{"id", "body"},
+			Rows:    1,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := store.Open(ctx, store.Options{
+		Path:   filepath.Join(t.TempDir(), "dst.db"),
+		Schema: `create table things(id text primary key, body text not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	mustExec(t, dst.DB(), `insert into things(id, body) values('old', 'before')`)
+	if _, err := Import(ctx, ImportOptions{DB: dst.DB(), RootDir: root}); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	if err := dst.DB().QueryRowContext(ctx, `select group_concat(id || ':' || body, ',') from things`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "new:from legacy" {
+		t.Fatalf("things = %q", got)
+	}
+}
+
+func TestImportFilterSkipsRows(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	rel := filepath.ToSlash(filepath.Join("tables", "messages", "000000.jsonl.gz"))
+	writeGzipJSONL(t,
+		filepath.Join(root, filepath.FromSlash(rel)),
+		map[string]any{"id": "public", "guild_id": "g1", "body": "keep"},
+		map[string]any{"id": "dm", "guild_id": "@me", "body": "skip"},
+	)
+	if err := WriteManifest(root, Manifest{
+		Version:     1,
+		GeneratedAt: time.Date(2026, 5, 2, 9, 5, 0, 0, time.UTC),
+		Tables: []TableManifest{{
+			Name:    "messages",
+			Files:   []string{rel},
+			Columns: []string{"id", "guild_id", "body"},
+			Rows:    2,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := store.Open(ctx, store.Options{
+		Path:   filepath.Join(t.TempDir(), "dst.db"),
+		Schema: `create table messages(id text primary key, guild_id text not null, body text not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if _, err := Import(ctx, ImportOptions{
+		DB:      dst.DB(),
+		RootDir: root,
+		Filter: func(table string, row map[string]any) (bool, error) {
+			return !(table == "messages" && row["guild_id"] == "@me"), nil
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := dst.DB().QueryRowContext(ctx, `select count(*) from messages where guild_id = '@me'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("private rows imported = %d", count)
+	}
+}
+
 func mustExec(t *testing.T, db *sql.DB, query string) {
 	t.Helper()
 	if _, err := db.Exec(query); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeGzipJSONL(t *testing.T, path string, rows ...map[string]any) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(file)
+	enc := json.NewEncoder(gz)
+	for _, row := range rows {
+		if err := enc.Encode(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
