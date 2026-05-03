@@ -647,8 +647,29 @@ func TestDetailModeToggleStartsFullLikeGitcrawl(t *testing.T) {
 	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
 		t.Fatalf("full detail should include metadata sections:\n%s", full)
 	}
+	m.width = 190
 	if !strings.Contains(stripANSI(m.View()), "d detail") {
 		t.Fatalf("footer should expose detail toggle:\n%s", stripANSI(m.View()))
+	}
+}
+
+func TestFooterControlsPrioritizeGitcrawlMuscleMemory(t *testing.T) {
+	full := footerControls(190)
+	for _, want := range []string{"right-click menu", "a actions", "header sort", "wheel scroll", "/ filter", "# jump", "r refresh", "d detail"} {
+		if !strings.Contains(full, want) {
+			t.Fatalf("wide footer missing %q:\n%s", want, full)
+		}
+	}
+	compact := footerControls(122)
+	for _, want := range []string{"right-click menu", "a actions", "wheel scroll", "/ filter", "# jump", "r refresh", "? help", "q quit"} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("compact footer missing %q:\n%s", want, compact)
+		}
+	}
+	for _, noisy := range []string{"o open", "c copy", "v group", "l layout"} {
+		if strings.Contains(compact, noisy) {
+			t.Fatalf("compact footer should match gitcrawl priority before app extras %q:\n%s", noisy, compact)
+		}
 	}
 }
 

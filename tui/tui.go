@@ -2210,15 +2210,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  r refresh  wheel scroll  / filter  # jump  ? help  q quit"
+	full := "Tab focus  click select  right-click menu  a actions  header sort  wheel scroll  / filter  # jump  o open  c copy  s sort  m members  v group  d detail  r refresh  l layout  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  r refresh  / filter  # jump  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  a actions  wheel scroll  / filter  # jump  r refresh  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu a actions o open c copy s sort m members v group d detail l layout r refresh / filter # jump ? help q quit"
+	return "Tab focus click right-click menu a actions / filter # jump ? help q quit"
 }
 
 func (m model) footerLocation() string {
