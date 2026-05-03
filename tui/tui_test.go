@@ -779,6 +779,34 @@ func TestLeftClickSelectsRowUnderPointer(t *testing.T) {
 	}
 }
 
+func TestEnterDrillsThroughPanesLikeGitcrawl(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "Amy", Title: "first"}.ItemForLayout(LayoutChat),
+		},
+	})
+	if m.focus != focusRows {
+		t.Fatalf("initial focus = %v, want rows", m.focus)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.focus != focusContext {
+		t.Fatalf("enter from rows focus = %v, want context", m.focus)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	if m.focus != focusDetail {
+		t.Fatalf("enter from context focus = %v, want detail", m.focus)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = updated.(model)
+	if m.focus != focusDetail {
+		t.Fatalf("space from detail focus = %v, want detail", m.focus)
+	}
+}
+
 func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",

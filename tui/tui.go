@@ -826,7 +826,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.applyFilter()
 			}
 		case "enter", " ":
-			m.focus = focusDetail
+			if m.focus == focusRows {
+				m.focus = focusContext
+			} else if m.focus == focusContext {
+				m.focus = focusDetail
+			}
 		}
 	}
 	return m, nil
