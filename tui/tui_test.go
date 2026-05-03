@@ -340,7 +340,7 @@ func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
 	if got := m.items[members[0]].ID; got != "old" {
 		t.Fatalf("first member = %q, want oldest message first", got)
 	}
-	m.setSortMode(sortNewest)
+	m.setMemberSortMode(sortNewest)
 	members = m.currentGroupMembers()
 	if got := m.items[members[0]].ID; got != "new" {
 		t.Fatalf("newest sort first member = %q, want newest message first", got)
@@ -356,7 +356,7 @@ func TestChatMembersScopeSortUsesScopeNotContainer(t *testing.T) {
 			Row{Kind: "message", ID: "two", Scope: "a-workspace", Container: "general", Title: "two"}.ItemForLayout(LayoutChat),
 		},
 	})
-	m.setSortMode(sortScope)
+	m.setMemberSortMode(sortScope)
 	members := m.currentGroupMembers()
 	if len(members) != 2 {
 		t.Fatalf("members = %#v", members)
@@ -547,7 +547,7 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 		t.Fatalf("right click selected = %d, want row under pointer", m.selected)
 	}
 	view := m.View()
-	if !strings.Contains(view, "Focus detail pane") || !strings.Contains(view, "Sort rows") {
+	if !strings.Contains(view, "Focus detail pane") || !strings.Contains(view, "Sort focused pane") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
 	}
 }
@@ -562,7 +562,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = updated.(model)
-	if !m.menuOpen || m.menuTitle != "Sort" {
+	if !m.menuOpen || m.menuTitle != "Sort Groups" {
 		t.Fatalf("sort menu open=%v title=%q", m.menuOpen, m.menuTitle)
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
@@ -582,6 +582,49 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "sort:title") {
 		t.Fatalf("header missing sort status:\n%s", view)
+	}
+}
+
+func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "z", Scope: "workspace", Container: "general", Author: "Zed", Title: "later", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "a", Scope: "workspace", Container: "general", Author: "Amy", Title: "earlier", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "x", Scope: "workspace", Container: "random", Author: "Max", Title: "other", CreatedAt: "2026-05-02T11:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 180
+	m.height = 28
+	m.focus = focusContext
+	beforeGroups := make([]string, 0, len(m.groups))
+	for _, group := range m.groups {
+		beforeGroups = append(beforeGroups, group.Title)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if !m.menuOpen || m.menuTitle != "Sort Members" {
+		t.Fatalf("sort menu title = %q open=%v", m.menuTitle, m.menuOpen)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
+	m = updated.(model)
+	if m.sortMode != sortDefault {
+		t.Fatalf("group sort changed to %v", m.sortMode)
+	}
+	if m.memberSortMode != sortAuthor {
+		t.Fatalf("member sort = %v, want author", m.memberSortMode)
+	}
+	afterGroups := make([]string, 0, len(m.groups))
+	for _, group := range m.groups {
+		afterGroups = append(afterGroups, group.Title)
+	}
+	if strings.Join(beforeGroups, "\n") != strings.Join(afterGroups, "\n") {
+		t.Fatalf("member sort changed group order: before=%v after=%v", beforeGroups, afterGroups)
+	}
+	members := m.currentGroupMembers()
+	if got := m.items[members[0]].Author; got != "Amy" {
+		t.Fatalf("first member author = %q, want Amy", got)
 	}
 }
 
@@ -609,7 +652,7 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	view := m.View()
-	for _, want := range []string{"Help", "Right click or m", "s: sort rows", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Help", "Right click or m", "s: sort focused pane", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}
@@ -789,8 +832,8 @@ func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
 		Action: tea.MouseActionPress,
 	})
 	m = updated.(model)
-	if m.sortMode != sortAuthor {
-		t.Fatalf("sort mode = %v, want author", m.sortMode)
+	if m.memberSortMode != sortAuthor {
+		t.Fatalf("member sort mode = %v, want author", m.memberSortMode)
 	}
 	members := m.currentGroupMembers()
 	if got := m.items[members[0]].Author; got != "Amy" {

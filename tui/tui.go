@@ -423,6 +423,7 @@ type model struct {
 	sourceLocation string
 	layoutPreset   LayoutPreset
 	sortMode       sortMode
+	memberSortMode sortMode
 	layoutMode     layoutMode
 	menuOpen       bool
 	menuTitle      string
@@ -675,7 +676,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "/", "f":
 			m.startFilter()
 		case "s":
-			m.openSortMenu()
+			m.openSortMenuFor(m.focus)
 		case "m":
 			m.openActionMenu()
 		case "?":
@@ -852,7 +853,7 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 			return m.runMenuAction(m.menuItems[m.menuIndex].action)
 		}
 	case "s":
-		m.openSortMenu()
+		m.openSortMenuFor(m.focus)
 	case "?":
 		m.openHelpMenu()
 	case "/":
@@ -874,7 +875,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		{label: "Focus context pane", action: actionFocusContext},
 		{label: "Focus detail pane", action: actionFocusDetail},
 		menuSection("View"),
-		{label: "Sort rows", action: actionSortMenu},
+		{label: "Sort focused pane", action: actionSortMenu},
 		{label: "Filter rows...", action: actionStartFilter},
 		{label: "Toggle wide layout", action: actionToggleLayout},
 	}
@@ -889,17 +890,24 @@ func (m *model) openActionMenuFor(context paneFocus) {
 	m.openMenu("Actions", items)
 }
 
-func (m *model) openSortMenu() {
-	m.openMenu("Sort", []menuItem{
+func (m *model) openSortMenuFor(context paneFocus) {
+	active := m.sortMode
+	title := "Sort Groups"
+	if context == focusContext {
+		active = m.memberSortMode
+		title = "Sort Members"
+	}
+	m.menuContext = context
+	m.openMenu(title, []menuItem{
 		menuSection("Order"),
-		{label: markActiveSort("Default", m.sortMode == sortDefault), action: actionSortDefault},
-		{label: markActiveSort("Newest", m.sortMode == sortNewest), action: actionSortNewest},
-		{label: markActiveSort("Oldest", m.sortMode == sortOldest), action: actionSortOldest},
-		{label: markActiveSort("Title", m.sortMode == sortTitle), action: actionSortTitle},
-		{label: markActiveSort("Kind", m.sortMode == sortKind), action: actionSortKind},
-		{label: markActiveSort("Scope", m.sortMode == sortScope), action: actionSortScope},
-		{label: markActiveSort("Container", m.sortMode == sortContainer), action: actionSortContainer},
-		{label: markActiveSort("Author", m.sortMode == sortAuthor), action: actionSortAuthor},
+		{label: markActiveSort("Default", active == sortDefault), action: actionSortDefault},
+		{label: markActiveSort("Newest", active == sortNewest), action: actionSortNewest},
+		{label: markActiveSort("Oldest", active == sortOldest), action: actionSortOldest},
+		{label: markActiveSort("Title", active == sortTitle), action: actionSortTitle},
+		{label: markActiveSort("Kind", active == sortKind), action: actionSortKind},
+		{label: markActiveSort("Scope", active == sortScope), action: actionSortScope},
+		{label: markActiveSort("Container", active == sortContainer), action: actionSortContainer},
+		{label: markActiveSort("Author", active == sortAuthor), action: actionSortAuthor},
 	})
 }
 
@@ -911,7 +919,7 @@ func (m *model) openHelpMenu() {
 		{label: "Right click or m: floating actions", action: actionClose},
 		{label: "Click row header: sort", action: actionClose},
 		menuSection("Keyboard"),
-		{label: "s: sort rows", action: actionClose},
+		{label: "s: sort focused pane", action: actionClose},
 		{label: "l: toggle layout", action: actionClose},
 		{label: "/: filter rows", action: actionClose},
 		{label: "j/k or wheel: scroll focused pane", action: actionClose},
@@ -954,7 +962,7 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 		m.focus = focusDetail
 		m.closeMenu()
 	case actionSortMenu:
-		m.openSortMenu()
+		m.openSortMenuFor(m.menuContext)
 	case actionHelpMenu:
 		m.openHelpMenu()
 	case actionClearFilter:
@@ -967,21 +975,21 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 		m.toggleLayout()
 		m.closeMenu()
 	case actionSortDefault:
-		m.setSortMode(sortDefault)
+		m.setPaneSortMode(sortDefault)
 	case actionSortNewest:
-		m.setSortMode(sortNewest)
+		m.setPaneSortMode(sortNewest)
 	case actionSortOldest:
-		m.setSortMode(sortOldest)
+		m.setPaneSortMode(sortOldest)
 	case actionSortTitle:
-		m.setSortMode(sortTitle)
+		m.setPaneSortMode(sortTitle)
 	case actionSortKind:
-		m.setSortMode(sortKind)
+		m.setPaneSortMode(sortKind)
 	case actionSortScope:
-		m.setSortMode(sortScope)
+		m.setPaneSortMode(sortScope)
 	case actionSortContainer:
-		m.setSortMode(sortContainer)
+		m.setPaneSortMode(sortContainer)
 	case actionSortAuthor:
-		m.setSortMode(sortAuthor)
+		m.setPaneSortMode(sortAuthor)
 	case actionQuit:
 		return tea.Quit
 	}
@@ -1040,6 +1048,7 @@ func (m model) renderHeader(width int) string {
 		status += " filtered by " + strconvQuote(m.query)
 	}
 	status += "  sort:" + m.sortMode.Label()
+	status += "  members:" + m.memberSortMode.Label()
 	status += "  layout:" + m.layout().mode
 	line := m.title + "  " + status
 	if m.filterMode {
@@ -1077,7 +1086,7 @@ func (m model) renderContextPane(rect rect) string {
 		return pane(m.memberPaneTitle(), "", []string{"No group selected."}, rect, focusContext, m.focus, contextPaneAccent)
 	}
 	members := m.currentGroupMembers()
-	columns := memberColumns(width, m.sortMode)
+	columns := memberColumns(width, m.memberSortMode)
 	rows := m.memberTableRows(columns, members)
 	if len(members) == 0 {
 		rows = []tableRow{messageTableRow(columns, "no rows in group")}
@@ -1537,6 +1546,23 @@ func (m *model) setSortMode(mode sortMode) {
 	m.closeMenu()
 }
 
+func (m *model) setMemberSortMode(mode sortMode) {
+	m.memberSortMode = mode
+	for index := range m.groups {
+		m.sortGroupMembers(m.groups[index].Members)
+	}
+	m.ensureVisible()
+	m.closeMenu()
+}
+
+func (m *model) setPaneSortMode(mode sortMode) {
+	if m.menuContext == focusContext {
+		m.setMemberSortMode(mode)
+		return
+	}
+	m.setSortMode(mode)
+}
+
 func (m model) currentItemIndex() int {
 	if len(m.filtered) == 0 || m.selected < 0 || m.selected >= len(m.filtered) {
 		return -1
@@ -1607,7 +1633,7 @@ func (m model) sortGroupMembers(members []int) {
 	sort.SliceStable(members, func(i, j int) bool {
 		left := m.items[members[i]]
 		right := m.items[members[j]]
-		switch m.sortMode {
+		switch m.memberSortMode {
 		case sortNewest:
 			if less, ok := compareItemTime(left, right, true); ok {
 				return less
@@ -3047,18 +3073,18 @@ func (m *model) sortGroupsFromHeader(x, width int) {
 }
 
 func (m *model) sortMembersFromHeader(x, width int) {
-	column := columnAt(memberColumns(width, m.sortMode), x)
+	column := columnAt(memberColumns(width, m.memberSortMode), x)
 	switch column.Key {
 	case "kind":
-		m.setSortMode(sortKind)
+		m.setMemberSortMode(sortKind)
 	case "time", "age":
-		m.toggleTimeSort()
+		m.toggleMemberTimeSort()
 	case "container":
-		m.setSortMode(sortContainer)
+		m.setMemberSortMode(sortContainer)
 	case "author":
-		m.setSortMode(sortAuthor)
+		m.setMemberSortMode(sortAuthor)
 	default:
-		m.setSortMode(sortTitle)
+		m.setMemberSortMode(sortTitle)
 	}
 }
 
@@ -3068,6 +3094,14 @@ func (m *model) toggleTimeSort() {
 		return
 	}
 	m.setSortMode(sortNewest)
+}
+
+func (m *model) toggleMemberTimeSort() {
+	if m.memberSortMode == sortNewest {
+		m.setMemberSortMode(sortOldest)
+		return
+	}
+	m.setMemberSortMode(sortNewest)
 }
 
 func rowKind(item Item) string {
