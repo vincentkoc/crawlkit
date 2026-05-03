@@ -1581,6 +1581,26 @@ func TestNarrowColumnLayoutKeepsDateAgeAndAuthorColumns(t *testing.T) {
 	}
 }
 
+func TestSplitMemberColumnsUseReadableDates(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "github-secure-session-4", Author: "Vincent Koc", Title: "Im working on adding", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", Container: "github-secure-session-4", Author: "Build Club", Title: "Course Completed", CreatedAt: "2026-05-02T13:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 122
+	m.height = 34
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "05-02") {
+		t.Fatalf("split member table should keep compact dates:\n%s", view)
+	}
+	if strings.Contains(view, "2026-05...") {
+		t.Fatalf("split member table should not show truncated timestamps:\n%s", view)
+	}
+}
+
 func TestRightClickPlacesFloatingMenu(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",

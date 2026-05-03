@@ -4497,14 +4497,14 @@ func rowWhen(item Item) string {
 }
 
 func rowTimeForColumn(item Item, width int) string {
-	if width <= 5 {
+	if width <= 11 {
 		return compactDate(item)
 	}
 	return rowWhen(item)
 }
 
 func groupTimeForColumn(value string, width int) string {
-	if width <= 5 {
+	if width <= 11 {
 		return compactDateFromTimestamp(value)
 	}
 	return shortTimestamp(value)
