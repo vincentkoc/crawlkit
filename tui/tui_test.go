@@ -87,11 +87,32 @@ func TestRowItemUsesSharedArchiveShape(t *testing.T) {
 	if !strings.Contains(item.Subtitle, "@me") || !strings.Contains(item.Subtitle, "dm") || !strings.Contains(item.Subtitle, "sam") {
 		t.Fatalf("subtitle = %q", item.Subtitle)
 	}
-	if !strings.Contains(item.Detail, "full message text") || !strings.Contains(item.Detail, "reply_to=m0") {
+	if !strings.Contains(item.Detail, "full message text") || strings.Contains(item.Detail, "reply_to=m0") {
 		t.Fatalf("detail = %q", item.Detail)
+	}
+	if item.Fields["reply_to"] != "m0" {
+		t.Fatalf("fields = %#v", item.Fields)
 	}
 	if len(item.Tags) < 2 || item.Tags[0] != "discord" || item.Tags[1] != "message" {
 		t.Fatalf("tags = %#v", item.Tags)
+	}
+}
+
+func TestRowItemKeepsExplicitDetailAndStripsTerminalControls(t *testing.T) {
+	item := Row{
+		Source: "slack",
+		Kind:   "message",
+		ID:     "\x1b[31mm1\x1b[0m",
+		Title:  "\x1b]8;;https://evil.test\ahello\x1b]8;;\a",
+		Text:   "\x1b[32mgreen body\x1b[0m",
+		Detail: "clean readable body",
+		Fields: map[string]string{"\x1b[31mraw\x1b[0m": "\x1b[32mvalue\x1b[0m"},
+	}.ItemForLayout(LayoutChat)
+	if item.ID != "m1" || item.Title != "hello" || item.Text != "green body" || item.Detail != "clean readable body" {
+		t.Fatalf("item was not sanitized/readable: %#v", item)
+	}
+	if item.Fields["raw"] != "value" {
+		t.Fatalf("fields were not sanitized: %#v", item.Fields)
 	}
 }
 
@@ -330,6 +351,29 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 	}
 	if strings.Contains(joined, "# Plan") || strings.Contains(joined, "`done`") {
 		t.Fatalf("chat detail should render markdown-ish text, not raw markdown:\n%s", joined)
+	}
+}
+
+func TestChatDetailDoesNotTreatMetadataAsMessageBody(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Fields: map[string]string{"thread": "m1", "ts": "m1"}}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "actual reply", Fields: map[string]string{"thread": "m1", "ts": "m2"}}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.selectItemIndex(1)
+	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[1], 60), "\n"))
+	if !strings.Contains(joined, "actual reply") {
+		t.Fatalf("chat detail missing message body:\n%s", joined)
+	}
+	transcript := strings.Split(strings.Split(joined, "Properties")[0], "Thread")
+	if len(transcript) != 2 {
+		t.Fatalf("missing thread transcript:\n%s", joined)
+	}
+	if strings.Contains(transcript[1], "ts=m1") {
+		t.Fatalf("metadata leaked into transcript before properties:\n%s", joined)
 	}
 }
 
@@ -1096,8 +1140,11 @@ func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
 		URL:       "https://example.com/launch",
 		UpdatedAt: "2026-05-01T12:00:00Z",
 	}.ItemForLayout(LayoutDocument)
-	if !strings.HasPrefix(item.Detail, "url=https://example.com/launch") {
+	if item.Detail != "" {
 		t.Fatalf("detail = %q", item.Detail)
+	}
+	if item.URL != "https://example.com/launch" {
+		t.Fatalf("url = %q", item.URL)
 	}
 	if !strings.Contains(item.Subtitle, "page") || !strings.Contains(item.Subtitle, "2026-05-01") {
 		t.Fatalf("subtitle = %q", item.Subtitle)

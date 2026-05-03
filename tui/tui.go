@@ -8,10 +8,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -29,7 +31,6 @@ var (
 	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
 	bareLinkRE        = regexp.MustCompile(`(^|[\s(<])(https?://[^\s<>)]+)`)
 	markdownListRE    = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.+)$`)
-	terminalControlRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
 )
 
 var (
@@ -108,6 +109,7 @@ type Row struct {
 	Author    string            `json:"author,omitempty"`
 	Title     string            `json:"title"`
 	Text      string            `json:"text,omitempty"`
+	Detail    string            `json:"detail,omitempty"`
 	URL       string            `json:"url,omitempty"`
 	CreatedAt string            `json:"created_at,omitempty"`
 	UpdatedAt string            `json:"updated_at,omitempty"`
@@ -201,18 +203,18 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 	if layout == LayoutAuto {
 		layout = inferLayout([]Row{r})
 	}
-	rawTitle := firstNonEmpty(r.Title, r.Text, r.ID, "(untitled)")
+	rawTitle := firstNonEmpty(cleanText(r.Title), cleanText(r.Text), cleanText(r.ID), "(untitled)")
 	title := compactTitle(rawTitle)
 	detail := r.detailForLayout(layout)
-	if strings.TrimSpace(detail) == "" && title != strings.TrimSpace(rawTitle) {
-		detail = strings.TrimSpace(rawTitle)
+	if strings.TrimSpace(detail) == "" && title != cleanText(rawTitle) {
+		detail = cleanText(rawTitle)
 	}
-	tags := append([]string(nil), r.Tags...)
+	tags := cleanStrings(r.Tags)
 	if r.Kind != "" {
-		tags = append([]string{r.Kind}, tags...)
+		tags = append([]string{cleanText(r.Kind)}, tags...)
 	}
 	if r.Source != "" {
-		tags = append([]string{r.Source}, tags...)
+		tags = append([]string{cleanText(r.Source)}, tags...)
 	}
 	depth := r.Depth
 	if depth == 0 && layout == LayoutChat && strings.TrimSpace(r.ParentID) != "" {
@@ -221,20 +223,20 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 	return Item{
 		Title:     title,
 		Subtitle:  r.subtitleForLayout(layout),
-		Text:      strings.TrimSpace(r.Text),
+		Text:      cleanText(r.Text),
 		Detail:    detail,
 		Tags:      tags,
 		Depth:     depth,
-		Source:    strings.TrimSpace(r.Source),
-		Kind:      strings.TrimSpace(r.Kind),
-		ID:        strings.TrimSpace(r.ID),
-		ParentID:  strings.TrimSpace(r.ParentID),
-		Scope:     strings.TrimSpace(r.Scope),
-		Container: strings.TrimSpace(r.Container),
-		Author:    strings.TrimSpace(r.Author),
-		URL:       strings.TrimSpace(r.URL),
-		CreatedAt: strings.TrimSpace(r.CreatedAt),
-		UpdatedAt: strings.TrimSpace(r.UpdatedAt),
+		Source:    cleanText(r.Source),
+		Kind:      cleanText(r.Kind),
+		ID:        cleanText(r.ID),
+		ParentID:  cleanText(r.ParentID),
+		Scope:     cleanText(r.Scope),
+		Container: cleanText(r.Container),
+		Author:    cleanText(r.Author),
+		URL:       cleanText(r.URL),
+		CreatedAt: cleanText(r.CreatedAt),
+		UpdatedAt: cleanText(r.UpdatedAt),
 		Fields:    copyStringMap(r.Fields),
 	}
 }
@@ -263,14 +265,16 @@ func Run(ctx context.Context, opts Options) error {
 		return ErrNotTerminal
 	}
 	model := newModel(opts)
-	if width, height, err := term.GetSize(output.Fd()); err == nil && width > 0 && height > 0 {
+	if width, height, ok := terminalSize(input, output); ok {
 		model.width = width
 		model.height = height
 		model.ensureVisible()
 	}
+	runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stopSignals()
 	program := tea.NewProgram(
 		model,
-		tea.WithContext(ctx),
+		tea.WithContext(runCtx),
 		tea.WithInput(input),
 		tea.WithOutput(output),
 		tea.WithAltScreen(),
@@ -306,14 +310,14 @@ func inferLayoutFromItems(items []Item) LayoutPreset {
 
 func (r Row) subtitleForLayout(layout LayoutPreset) string {
 	if layout == LayoutChat {
-		parts := []string{r.Container, r.Author, r.CreatedAt, r.UpdatedAt}
+		parts := []string{cleanText(r.Container), cleanText(r.Author), cleanText(r.CreatedAt), cleanText(r.UpdatedAt)}
 		return joinNonEmpty(parts, "  ")
 	}
 	if layout == LayoutDocument {
-		parts := []string{r.Kind, r.Scope, r.Container, r.UpdatedAt, r.CreatedAt}
+		parts := []string{cleanText(r.Kind), cleanText(r.Scope), cleanText(r.Container), cleanText(r.UpdatedAt), cleanText(r.CreatedAt)}
 		return joinNonEmpty(parts, "  ")
 	}
-	parts := []string{r.Scope, r.Container, r.Author, r.CreatedAt, r.UpdatedAt}
+	parts := []string{cleanText(r.Scope), cleanText(r.Container), cleanText(r.Author), cleanText(r.CreatedAt), cleanText(r.UpdatedAt)}
 	return joinNonEmpty(parts, "  ")
 }
 
@@ -329,51 +333,49 @@ func joinNonEmpty(parts []string, sep string) string {
 }
 
 func (r Row) detailForLayout(layout LayoutPreset) string {
+	if detail := cleanText(r.Detail); detail != "" {
+		return detail
+	}
 	var lines []string
-	if text := strings.TrimSpace(r.Text); text != "" && text != strings.TrimSpace(r.Title) {
+	if text := cleanText(r.Text); text != "" && text != cleanText(r.Title) {
 		lines = append(lines, text)
-	}
-	if layout == LayoutDocument && strings.TrimSpace(r.URL) != "" {
-		lines = append(lines, fieldLine("url", r.URL))
-	}
-	for _, line := range []string{
-		fieldLine("id", r.ID),
-		fieldLine("parent", r.ParentID),
-		fieldLine("scope", r.Scope),
-		fieldLine("container", r.Container),
-		fieldLine("author", r.Author),
-	} {
-		if line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if layout != LayoutDocument {
-		if line := fieldLine("url", r.URL); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if len(r.Fields) > 0 {
-		keys := make([]string, 0, len(r.Fields))
-		for key := range r.Fields {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			if line := fieldLine(key, r.Fields[key]); line != "" {
-				lines = append(lines, line)
-			}
-		}
 	}
 	return strings.Join(lines, "\n")
 }
 
+func terminalSize(input, output *os.File) (int, int, bool) {
+	for _, file := range []*os.File{output, input} {
+		if file == nil {
+			continue
+		}
+		width, height, err := term.GetSize(file.Fd())
+		if err == nil && width > 0 && height > 0 {
+			return width, height, true
+		}
+	}
+	return 0, 0, false
+}
+
 func fieldLine(key, value string) string {
-	key = strings.TrimSpace(key)
-	value = strings.TrimSpace(value)
+	key = cleanText(key)
+	value = cleanText(value)
 	if key == "" || value == "" {
 		return ""
 	}
 	return key + "=" + value
+}
+
+func cleanStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if value = cleanText(value); value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }
 
 func copyStringMap(values map[string]string) map[string]string {
@@ -382,9 +384,13 @@ func copyStringMap(values map[string]string) map[string]string {
 	}
 	out := make(map[string]string, len(values))
 	for key, value := range values {
-		out[key] = value
+		out[cleanText(key)] = cleanText(value)
 	}
 	return out
+}
+
+func cleanText(value string) string {
+	return strings.TrimSpace(stripTerminalControls(value))
 }
 
 func firstNonEmpty(values ...string) string {
@@ -3885,7 +3891,7 @@ func normalizeReferenceLink(url string) string {
 }
 
 func stripTerminalControls(value string) string {
-	return terminalControlRE.ReplaceAllString(value, "")
+	return ansi.Strip(value)
 }
 
 func trimTrailingBlankLines(lines []string) []string {
