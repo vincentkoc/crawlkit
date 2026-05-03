@@ -296,6 +296,8 @@ func Run(ctx context.Context, opts Options) error {
 		model.width = width
 		model.height = height
 		model.ensureVisible()
+	} else {
+		model.height = 12
 	}
 	runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stopSignals()
@@ -1502,7 +1504,7 @@ func (m model) View() string {
 	width := maxInt(m.width, 40)
 	height := m.height
 	if height <= 0 {
-		height = 24
+		height = 12
 	}
 	layout := m.layout()
 	header := m.renderHeader(width)
