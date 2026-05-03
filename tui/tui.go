@@ -146,6 +146,25 @@ type BrowseOptions struct {
 	Stdout         io.Writer
 }
 
+func ControlsHelp() string {
+	return strings.TrimSpace(`Controls:
+  Tab/arrow      focus panes
+  click          select rows and headers
+  right-click    open pane action menu
+  a or m         open action menu
+  s              sort focused pane
+  /              filter rows
+  #              jump to row
+  v              cycle group view
+  d              toggle detail mode
+  l              toggle wide layout
+  o              open selected URL
+  c              copy selected URL
+  wheel or j/k   scroll focused pane
+  ?              in-app help
+  q              quit`)
+}
+
 func Browse(ctx context.Context, opts BrowseOptions) error {
 	if opts.Stdout == nil {
 		opts.Stdout = os.Stdout

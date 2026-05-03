@@ -69,6 +69,15 @@ func TestBrowseJSONEncodesNilRowsAsEmptyArray(t *testing.T) {
 	}
 }
 
+func TestControlsHelpDocumentsGitcrawlLikeActions(t *testing.T) {
+	help := ControlsHelp()
+	for _, want := range []string{"right-click", "a or m", "s", "/", "#", "v", "d", "l", "o", "c", "q"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("controls help missing %q:\n%s", want, help)
+		}
+	}
+}
+
 func TestRowItemUsesSharedArchiveShape(t *testing.T) {
 	item := Row{
 		Source:    "discord",
