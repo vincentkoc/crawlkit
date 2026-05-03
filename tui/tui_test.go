@@ -269,10 +269,16 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	mediumGroupHeader := groupListHeader(46, sortDefault)
 	mediumGroupLine := groupListLine(group, 46)
+	mediumRows := newModel(Options{Items: []Item{
+		Row{Kind: "message", Container: "github-secure-session-4", Title: "message", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+	}}).groupTableRows(groupColumns(46, sortDefault))
 	for _, want := range []string{"N", "TIME", "AGE", "GROUP", "05-02", "github-secure"} {
 		if !strings.Contains(mediumGroupHeader+mediumGroupLine, want) {
 			t.Fatalf("medium compact group columns missing %q:\n%s\n%s", want, mediumGroupHeader, mediumGroupLine)
 		}
+	}
+	if len(mediumRows) == 0 || !strings.Contains(strings.Join(mediumRows[0], " "), "05-02") {
+		t.Fatalf("medium group table row should use compact dates: %#v", mediumRows)
 	}
 
 	groupHeader := groupListHeader(56, sortDefault)

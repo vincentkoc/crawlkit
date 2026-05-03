@@ -2866,7 +2866,7 @@ func (m model) groupTableRows(columns []tableColumn) []tableRow {
 			case "count":
 				row = append(row, fmt.Sprintf("%d", group.Count))
 			case "time":
-				row = append(row, shortTimestamp(group.Latest))
+				row = append(row, groupTimeForColumn(group.Latest, column.Width))
 			case "age":
 				row = append(row, ageFromTimestamp(group.Latest))
 			case "scope":
@@ -3810,6 +3810,13 @@ func rowTimeForColumn(item Item, width int) string {
 		return compactDate(item)
 	}
 	return rowWhen(item)
+}
+
+func groupTimeForColumn(value string, width int) string {
+	if width <= 5 {
+		return compactDateFromTimestamp(value)
+	}
+	return shortTimestamp(value)
 }
 
 func rowAge(item Item) string {
