@@ -3414,11 +3414,11 @@ func (m model) chatDetailLines(item Item, width int) []string {
 	if meta := chatMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
-	if thread := m.threadLines(item, width); len(thread) > 0 {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Thread"))
+	if title, thread := m.threadSection(item, width); len(thread) > 0 {
+		lines = append(lines, "", dim(tuiRule(width)), bold(title))
 		lines = appendLimitedDetailLines(lines, thread, detailBodyLimit(m.compactDetail))
-	} else if conversation := m.conversationLines(item, width); len(conversation) > 0 {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Conversation"))
+	} else if title, conversation := m.conversationSection(item, width); len(conversation) > 0 {
+		lines = append(lines, "", dim(tuiRule(width)), bold(title))
 		lines = appendLimitedDetailLines(lines, conversation, detailBodyLimit(m.compactDetail))
 	} else if message := chatBodyText(item); message != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
@@ -3651,32 +3651,31 @@ func detailContextLines(item Item, includeTitle bool) []string {
 	return lines
 }
 
-func (m model) threadLines(selected Item, width int) []string {
+func (m model) threadSection(selected Item, width int) (string, []string) {
 	key := threadKey(selected)
 	if key == "" {
-		return nil
+		return "", nil
+	}
+	indexes := m.chatThreadIndexes(selected)
+	if len(indexes) <= 1 {
+		return "", nil
 	}
 	var lines []string
-	count := 0
-	for _, itemIndex := range m.chatThreadIndexes(selected) {
+	for _, itemIndex := range indexes {
 		if itemIndex < 0 || itemIndex >= len(m.items) {
 			continue
 		}
 		item := m.items[itemIndex]
-		count++
 		text := chatBodyText(item)
 		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID, width)...)
 	}
-	if count <= 1 {
-		return nil
-	}
-	return lines
+	return rangeSectionTitle("Thread", 0, len(indexes), len(indexes)), lines
 }
 
-func (m model) conversationLines(selected Item, width int) []string {
+func (m model) conversationSection(selected Item, width int) (string, []string) {
 	members := m.chatConversationIndexes(selected)
 	if len(members) <= 1 {
-		return nil
+		return "", nil
 	}
 	selectedIndex := -1
 	for index, itemIndex := range members {
@@ -3686,7 +3685,7 @@ func (m model) conversationLines(selected Item, width int) []string {
 		}
 	}
 	if selectedIndex < 0 {
-		return nil
+		return "", nil
 	}
 	radius := 8
 	start := maxInt(0, selectedIndex-radius)
@@ -3700,9 +3699,16 @@ func (m model) conversationLines(selected Item, width int) []string {
 		lines = append(lines, chatBubbleLines(item, chatBodyText(item), item.ID == selected.ID, width)...)
 	}
 	if len(lines) <= 1 {
-		return nil
+		return "", nil
 	}
-	return lines
+	return rangeSectionTitle("Conversation", start, end, len(members)), lines
+}
+
+func rangeSectionTitle(label string, start, end, total int) string {
+	if total <= 0 || end <= start {
+		return label
+	}
+	return fmt.Sprintf("%s %d-%d/%d", label, start+1, end, total)
 }
 
 func (m model) chatThreadIndexes(selected Item) []int {
