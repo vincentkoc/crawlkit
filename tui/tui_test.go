@@ -520,6 +520,40 @@ func TestChatDetailPrefersExplicitReadableDetail(t *testing.T) {
 	}
 }
 
+func TestChatDetailKeepsRawIDsBelowReadableSummary(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{
+				Kind:      "message",
+				ID:        "C0AQ7TZR9KP/draft:1776788414.770369:C0AQ7TZR9KP-1776788221.127409",
+				ParentID:  "1776788221.127409",
+				Container: "github-secure-session-4",
+				Author:    "Vincent Koc",
+				Title:     "raw",
+				Text:      "Im working on adding",
+				CreatedAt: "2026-04-21T16:20:14Z",
+				Fields: map[string]string{
+					"thread": "1776788221.127409",
+					"ts":     "draft:1776788414.770369",
+				},
+			}.ItemForLayout(LayoutChat),
+		},
+	})
+	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 64), "\n"))
+	firstSection := strings.Split(joined, "Thread")[0]
+	if strings.Contains(firstSection, "C0AQ7TZR9KP") || strings.Contains(firstSection, "1776788221") {
+		t.Fatalf("chat summary leaked raw ids before readable content:\n%s", joined)
+	}
+	if !strings.Contains(firstSection, "message  reply") {
+		t.Fatalf("chat summary should show readable message state:\n%s", joined)
+	}
+	if !strings.Contains(joined, "IDs") || !strings.Contains(joined, "C0AQ7TZR9KP") {
+		t.Fatalf("raw ids should remain available in the IDs section:\n%s", joined)
+	}
+}
+
 func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
 	m := newModel(Options{
 		Title:  "discrawl archive",

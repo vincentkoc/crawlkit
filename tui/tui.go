@@ -3242,11 +3242,26 @@ func chatHeaderLine(item Item) string {
 
 func chatMetaLine(item Item) string {
 	parts := []string{
-		fieldLine("id", item.ID),
-		fieldLine("thread", threadKey(item)),
 		fieldLine("kind", itemKind(item)),
+		chatThreadLabel(item),
+		rowAge(item),
 	}
 	return joinNonEmpty(parts, "  ")
+}
+
+func chatThreadLabel(item Item) string {
+	parent := strings.TrimSpace(item.ParentID)
+	thread := strings.TrimSpace(fieldValue(item, "thread", "reply_to"))
+	ts := strings.TrimSpace(fieldValue(item, "ts"))
+	id := strings.TrimSpace(item.ID)
+	switch {
+	case parent != "":
+		return "reply"
+	case thread != "" && thread != ts && thread != id:
+		return "thread"
+	default:
+		return ""
+	}
 }
 
 func documentMetaLine(item Item) string {
