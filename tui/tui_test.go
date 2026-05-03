@@ -324,6 +324,32 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 	}
 }
 
+func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
+		t.Fatalf("full detail should include metadata sections:\n%s", full)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+	if !m.compactDetail {
+		t.Fatal("detail mode did not toggle to compact")
+	}
+	compact := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(compact, "root message") || strings.Contains(compact, "Properties") || strings.Contains(compact, "IDs") {
+		t.Fatalf("compact detail should keep readable content and hide metadata sections:\n%s", compact)
+	}
+	if !strings.Contains(stripANSI(m.View()), "detail:compact") {
+		t.Fatalf("header should expose compact detail mode:\n%s", stripANSI(m.View()))
+	}
+}
+
 func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
@@ -913,7 +939,7 @@ func TestDocumentDetailRendersMarkdownPreviewLikeGitcrawl(t *testing.T) {
 		Text:      "# Checklist\n- wire panes\n- review [spec](https://example.com/spec)\n> keep it readable",
 		UpdatedAt: "2026-05-01T12:00:00Z",
 	}.ItemForLayout(LayoutDocument)
-	joined := stripANSI(strings.Join(documentDetailLinesForWidth(item, 56), "\n"))
+	joined := stripANSI(strings.Join(documentDetailLinesForWidth(item, 56, false), "\n"))
 	for _, want := range []string{"Launch plan", "Checklist", "- wire panes", "review spec <https://example.com/spec>", "> keep it readable", "Properties"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("document detail missing %q:\n%s", want, joined)

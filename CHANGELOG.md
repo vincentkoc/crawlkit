@@ -15,4 +15,5 @@
 - Use a gitcrawl-style viewport for `tui` detail panes so long threads and document previews scroll cleanly inside the focused pane.
 - Render `tui` detail content with gitcrawl-style sections, rules, markdown-ish wrapping, and pane-width-aware chat/document previews.
 - Add gitcrawl-style pane-specific sorting so group rows and member/message rows keep independent sort modes from headers or the sort menu.
+- Add a gitcrawl-style `d` detail-mode toggle so noisy metadata can collapse behind compact chat/document previews.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

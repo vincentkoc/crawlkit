@@ -424,6 +424,7 @@ type model struct {
 	layoutPreset   LayoutPreset
 	sortMode       sortMode
 	memberSortMode sortMode
+	compactDetail  bool
 	layoutMode     layoutMode
 	menuOpen       bool
 	menuTitle      string
@@ -461,6 +462,7 @@ const (
 	actionClearFilter
 	actionStartFilter
 	actionToggleLayout
+	actionToggleDetail
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -683,6 +685,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openHelpMenu()
 		case "l":
 			m.toggleLayout()
+		case "d":
+			m.toggleDetailMode()
 		case "esc":
 			if m.query != "" {
 				m.query = ""
@@ -860,6 +864,8 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 		m.startFilter()
 	case "l":
 		m.toggleLayout()
+	case "d":
+		m.toggleDetailMode()
 	}
 	return nil
 }
@@ -878,6 +884,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		{label: "Sort focused pane", action: actionSortMenu},
 		{label: "Filter rows...", action: actionStartFilter},
 		{label: "Toggle wide layout", action: actionToggleLayout},
+		{label: detailModeToggleLabel(m.compactDetail), action: actionToggleDetail},
 	}
 	if m.query != "" {
 		items = append(items, menuItem{label: "Clear filter", action: actionClearFilter})
@@ -920,6 +927,7 @@ func (m *model) openHelpMenu() {
 		{label: "Click row header: sort", action: actionClose},
 		menuSection("Keyboard"),
 		{label: "s: sort focused pane", action: actionClose},
+		{label: "d: toggle detail mode", action: actionClose},
 		{label: "l: toggle layout", action: actionClose},
 		{label: "/: filter rows", action: actionClose},
 		{label: "j/k or wheel: scroll focused pane", action: actionClose},
@@ -974,6 +982,9 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 	case actionToggleLayout:
 		m.toggleLayout()
 		m.closeMenu()
+	case actionToggleDetail:
+		m.toggleDetailMode()
+		m.closeMenu()
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
 	case actionSortNewest:
@@ -1007,6 +1018,11 @@ func (m *model) toggleLayout() {
 		return
 	}
 	m.layoutMode = layoutModeRightStack
+}
+
+func (m *model) toggleDetailMode() {
+	m.compactDetail = !m.compactDetail
+	m.detailView.GotoTop()
 }
 
 func (m model) View() string {
@@ -1050,6 +1066,7 @@ func (m model) renderHeader(width int) string {
 	status += "  sort:" + m.sortMode.Label()
 	status += "  members:" + m.memberSortMode.Label()
 	status += "  layout:" + m.layout().mode
+	status += "  detail:" + detailModeLabel(m.compactDetail)
 	line := m.title + "  " + status
 	if m.filterMode {
 		line += "  filter> " + m.query
@@ -1385,11 +1402,11 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  l layout  wheel scroll  / filter  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  d detail  l layout  wheel scroll  / filter  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  s sort  / filter  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  s sort  d detail  / filter  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
@@ -2087,6 +2104,20 @@ func paneFocusLabel(focused bool) string {
 	return ""
 }
 
+func detailModeToggleLabel(compact bool) string {
+	if compact {
+		return "Show full detail"
+	}
+	return "Show compact detail"
+}
+
+func detailModeLabel(compact bool) string {
+	if compact {
+		return "compact"
+	}
+	return "full"
+}
+
 func paneTitle(pane, focus paneFocus, suffix string) string {
 	label := map[paneFocus]string{
 		focusRows:    "Rows",
@@ -2486,7 +2517,7 @@ func (m model) detailLinesForWidth(item Item, width int) []string {
 	case LayoutChat:
 		return m.chatDetailLines(item, width)
 	case LayoutDocument:
-		return documentDetailLinesForWidth(item, width)
+		return documentDetailLinesForWidth(item, width, m.compactDetail)
 	}
 	return genericDetailLinesForWidth(item, width)
 }
@@ -2531,13 +2562,15 @@ func (m model) chatDetailLines(item Item, width int) []string {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
 		lines = append(lines, chatBubbleLines(item, message, true, width)...)
 	}
-	if properties := chatPropertyLines(item); len(properties) > 0 {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
-		lines = append(lines, properties...)
-	}
-	if ids := chatIDLines(item); len(ids) > 0 {
-		lines = append(lines, "", dim(tuiRule(width)), bold("IDs"))
-		lines = append(lines, ids...)
+	if !m.compactDetail {
+		if properties := chatPropertyLines(item); len(properties) > 0 {
+			lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
+			lines = append(lines, properties...)
+		}
+		if ids := chatIDLines(item); len(ids) > 0 {
+			lines = append(lines, "", dim(tuiRule(width)), bold("IDs"))
+			lines = append(lines, ids...)
+		}
 	}
 	if len(lines) == 0 {
 		return []string{"No detail for this message."}
@@ -2546,10 +2579,10 @@ func (m model) chatDetailLines(item Item, width int) []string {
 }
 
 func documentDetailLines(item Item) []string {
-	return documentDetailLinesForWidth(item, 1000)
+	return documentDetailLinesForWidth(item, 1000, false)
 }
 
-func documentDetailLinesForWidth(item Item, width int) []string {
+func documentDetailLinesForWidth(item Item, width int, compact bool) []string {
 	var lines []string
 	title := firstNonEmpty(item.Title, item.ID, "Untitled")
 	lines = append(lines, bold(title))
@@ -2565,7 +2598,7 @@ func documentDetailLinesForWidth(item Item, width int) []string {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Preview"))
 		lines = append(lines, markdownLines(preview, width)...)
 	}
-	if metadata := documentPropertyLines(item); len(metadata) > 0 {
+	if metadata := documentPropertyLines(item); !compact && len(metadata) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
 		lines = append(lines, metadata...)
 	}
