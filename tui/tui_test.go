@@ -1231,6 +1231,26 @@ func TestDocumentExplorerGroupsParentsAndListsPages(t *testing.T) {
 	}
 }
 
+func TestDocumentContextColumnsAvoidEmptyChatAuthorSlot(t *testing.T) {
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", ParentID: "Marketing", Container: "Comet.com", Title: "Gideon's SF Events", UpdatedAt: "2026-05-01T17:52:33Z"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "database", ParentID: "Marketing", Container: "Comet.com", Title: "Launch database", UpdatedAt: "2026-05-01T16:00:00Z"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	m.width = 180
+	m.height = 18
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "kind") || !strings.Contains(view, "date") || !strings.Contains(view, "title") {
+		t.Fatalf("document context columns missing useful labels:\n%s", view)
+	}
+	if strings.Contains(view, " who ") || strings.Contains(view, " author ") {
+		t.Fatalf("document context should not reserve a blank chat author column:\n%s", view)
+	}
+}
+
 func TestDocumentExplorerCyclesGroupViews(t *testing.T) {
 	m := newModel(Options{
 		Title:  "notcrawl archive",

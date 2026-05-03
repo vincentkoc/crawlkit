@@ -1584,7 +1584,7 @@ func (m model) renderContextPane(rect rect) string {
 		return pane(m.memberPaneTitle(), "", []string{"No group selected."}, rect, focusContext, m.focus, contextPaneAccent)
 	}
 	members := m.currentGroupMembers()
-	columns := memberColumns(width, m.memberSortMode)
+	columns := m.memberColumns(width)
 	rows := m.memberTableRows(columns, members)
 	if len(members) == 0 {
 		rows = []tableRow{messageTableRow(columns, "no rows in group")}
@@ -3006,23 +3006,34 @@ func (m model) groupTitleLabel() string {
 	return groupModeLabel(m.layoutPreset, m.groupMode)
 }
 
-func memberColumns(width int, active sortMode) []tableColumn {
+func (m model) memberColumns(width int) []tableColumn {
 	width = maxInt(24, width)
+	active := m.memberSortMode
 	if width < 34 {
 		whenW := 5
 		titleW := maxInt(1, width-whenW-1)
 		return []tableColumn{
-			{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
+			{Key: "time", Title: activeTimeLabel(m.memberTimeLabel(), active), Width: whenW},
 			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 		}
 	}
 	if width < 54 {
 		whenW := 5
 		ageW := 4
+		if m.layoutPreset == LayoutDocument {
+			kindW := minInt(maxInt(5, width/7), 9)
+			titleW := maxInt(1, width-whenW-ageW-kindW-3)
+			return []tableColumn{
+				{Key: "time", Title: activeTimeLabel("date", active), Width: whenW},
+				{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+				{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
+				{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
+			}
+		}
 		authorW := minInt(maxInt(5, width/6), 9)
 		titleW := maxInt(1, width-whenW-ageW-authorW-3)
 		return []tableColumn{
-			{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
+			{Key: "time", Title: activeTimeLabel(m.memberTimeLabel(), active), Width: whenW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
 			{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
 			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
@@ -3032,6 +3043,16 @@ func memberColumns(width int, active sortMode) []tableColumn {
 	whenW := minInt(maxInt(10, width/6), 16)
 	ageW := minInt(maxInt(4, width/16), 7)
 	whereW := minInt(maxInt(10, width/5), 22)
+	if m.layoutPreset == LayoutDocument {
+		titleW := maxInt(1, width-kindW-whenW-ageW-whereW-4)
+		return []tableColumn{
+			{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
+			{Key: "time", Title: activeTimeLabel("updated", active), Width: whenW},
+			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+			{Key: "container", Title: activeLabel("where", active == sortContainer || active == sortScope), Width: whereW},
+			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
+		}
+	}
 	authorW := minInt(maxInt(8, width/7), 18)
 	titleW := maxInt(1, width-kindW-whenW-ageW-whereW-authorW-5)
 	return []tableColumn{
@@ -3042,6 +3063,13 @@ func memberColumns(width int, active sortMode) []tableColumn {
 		{Key: "author", Title: activeLabel("author", active == sortAuthor), Width: authorW},
 		{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 	}
+}
+
+func (m model) memberTimeLabel() string {
+	if m.layoutPreset == LayoutDocument {
+		return "date"
+	}
+	return "time"
 }
 
 func activeLabel(label string, active bool) string {
@@ -3797,7 +3825,7 @@ func (m *model) sortGroupsFromHeader(x, width int) {
 }
 
 func (m *model) sortMembersFromHeader(x, width int) {
-	column := columnAt(memberColumns(width, m.memberSortMode), x)
+	column := columnAt(m.memberColumns(width), x)
 	switch column.Key {
 	case "kind":
 		m.setMemberSortMode(sortKind)
