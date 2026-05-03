@@ -585,7 +585,7 @@ func TestChatDetailKeepsRawIDsBelowReadableSummary(t *testing.T) {
 	}
 }
 
-func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
+func TestDetailModeToggleStartsFullLikeGitcrawl(t *testing.T) {
 	m := newModel(Options{
 		Title:  "discrawl archive",
 		Layout: LayoutChat,
@@ -593,19 +593,28 @@ func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
+	if m.compactDetail {
+		t.Fatal("detail should default to full like gitcrawl")
+	}
+	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(full, "root message") || !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
+		t.Fatalf("full detail should include readable content and metadata sections:\n%s", full)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
 	if !m.compactDetail {
-		t.Fatal("detail should default to compact")
+		t.Fatal("detail mode did not toggle to compact")
 	}
 	compact := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
 	if !strings.Contains(compact, "root message") || strings.Contains(compact, "Properties") || strings.Contains(compact, "IDs") {
 		t.Fatalf("compact detail should keep readable content and hide metadata sections:\n%s", compact)
 	}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	m = updated.(model)
 	if m.compactDetail {
 		t.Fatal("detail mode did not toggle to full")
 	}
-	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	full = stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
 	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
 		t.Fatalf("full detail should include metadata sections:\n%s", full)
 	}
@@ -972,7 +981,7 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
 	view := stripANSI(m.View())
-	for _, want := range []string{"Detail compact", "Actions", "current selection", "Open selected URL"} {
+	for _, want := range []string{"Detail full", "Actions", "current selection", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}
