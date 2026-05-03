@@ -1536,7 +1536,7 @@ func (m *model) startRefresh(manual bool) tea.Cmd {
 	m.showHelp = false
 	m.refreshing = true
 	if manual {
-		m.status = "Refreshing rows"
+		m.status = "Refreshing " + m.refreshSourceLabel()
 	}
 	ctx := m.ctx
 	if ctx == nil {
@@ -1569,15 +1569,34 @@ func (m *model) finishRefresh(msg refreshResultMsg) {
 	nextSignature := itemSignature(m.items)
 	if previousSignature == nextSignature {
 		if msg.manual {
-			m.status = "Rows already current"
+			m.status = titleCase(m.refreshSourceLabel()) + " already current"
 		}
 		return
 	}
 	if msg.manual {
-		m.status = fmt.Sprintf("Refreshed %d row(s)", len(m.items))
+		m.status = fmt.Sprintf("Refreshed %s: %d row(s)", m.refreshSourceLabel(), len(m.items))
 		return
 	}
-	m.status = fmt.Sprintf("Auto refreshed %d row(s)", len(m.items))
+	m.status = fmt.Sprintf("Auto refreshed %s: %d row(s)", m.refreshSourceLabel(), len(m.items))
+}
+
+func (m model) refreshSourceLabel() string {
+	switch normalizeSourceKind(m.sourceKind) {
+	case SourceRemote:
+		return "remote data"
+	case SourceLocal:
+		return "local data"
+	default:
+		return "archive rows"
+	}
+}
+
+func titleCase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
 }
 
 func (m *model) toggleLayout() {
@@ -1902,7 +1921,7 @@ func (m model) renderFooter(width int) string {
 		line = "Jump: " + m.jumpQuery
 	}
 	if m.refreshing {
-		line = "Refreshing rows  " + line
+		line = "Refreshing " + m.refreshSourceLabel() + "  " + line
 	}
 	if location := m.footerLocation(); location != "" {
 		line += "  " + location

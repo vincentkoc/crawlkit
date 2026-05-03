@@ -1267,8 +1267,9 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 
 func TestRefreshKeyReloadsRowsLikeGitcrawl(t *testing.T) {
 	m := newModel(Options{
-		Title:  "discrawl archive",
-		Layout: LayoutChat,
+		Title:      "discrawl archive",
+		Layout:     LayoutChat,
+		SourceKind: SourceRemote,
 		Items: []Item{
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "Amy", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
@@ -1281,17 +1282,43 @@ func TestRefreshKeyReloadsRowsLikeGitcrawl(t *testing.T) {
 	})
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
 	m = updated.(model)
-	if cmd == nil || !m.refreshing || m.status != "Refreshing rows" {
+	if cmd == nil || !m.refreshing || m.status != "Refreshing remote data" {
 		t.Fatalf("refresh did not start, cmd=%v refreshing=%v status=%q", cmd, m.refreshing, m.status)
 	}
 	updated, _ = m.Update(cmd())
 	m = updated.(model)
-	if m.refreshing || len(m.items) != 2 || m.status != "Refreshed 2 row(s)" {
+	if m.refreshing || len(m.items) != 2 || m.status != "Refreshed remote data: 2 row(s)" {
 		t.Fatalf("refresh result not applied, refreshing=%v items=%d status=%q", m.refreshing, len(m.items), m.status)
 	}
 	item, ok := m.selectedItem()
 	if !ok || item.ID != "m1" {
 		t.Fatalf("refresh should preserve selected row by id, item=%#v ok=%v", item, ok)
+	}
+}
+
+func TestRefreshCurrentStatusUsesGitcrawlSourceLanguage(t *testing.T) {
+	m := newModel(Options{
+		Title:      "notcrawl archive",
+		Layout:     LayoutDocument,
+		SourceKind: SourceLocal,
+		Items: []Item{
+			Row{Kind: "page", ID: "p1", Title: "Launch Plan", UpdatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutDocument),
+		},
+		Refresh: func(context.Context) ([]Item, error) {
+			return []Item{
+				Row{Kind: "page", ID: "p1", Title: "Launch Plan", UpdatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutDocument),
+			}, nil
+		},
+	})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = updated.(model)
+	if cmd == nil || m.status != "Refreshing local data" {
+		t.Fatalf("refresh did not use local source language, cmd=%v status=%q", cmd, m.status)
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(model)
+	if m.status != "Local data already current" {
+		t.Fatalf("current refresh status = %q", m.status)
 	}
 }
 
