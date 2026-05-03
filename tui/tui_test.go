@@ -481,7 +481,7 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 	lines := m.detailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"general  bob", "Thread 1-2/2", "alice", "root message", "> bob", "reply message", "Properties", "url: https://example.com/thread", "IDs", "parent: m1"} {
+	for _, want := range []string{"general  bob", "Selected Message", "Thread 1-2/2", "alice", "root message", "> bob", ">   reply message", "Properties", "url: https://example.com/thread", "IDs", "parent: m1"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("chat detail missing %q:\n%s", want, joined)
 		}
@@ -510,7 +510,7 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 		t.Fatal("missing selected item")
 	}
 	joined := stripANSI(strings.Join(m.detailLinesForWidth(item, 52), "\n"))
-	for _, want := range []string{"Plan", "- ship columns", "polish preview <https://example.com>", "> agreed", "done", "Properties", "IDs"} {
+	for _, want := range []string{"Plan", "- ship columns", "polish preview <https://example.com>", ">   > agreed", ">   done", "Properties", "IDs"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("markdown chat detail missing %q:\n%s", want, joined)
 		}

@@ -3699,7 +3699,7 @@ func (m model) chatDetailLines(item Item, width int) []string {
 		lines = append(lines, dim(meta))
 	}
 	if message := chatBodyText(item); message != "" {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
+		lines = append(lines, "", dim(tuiRule(width)), bold("Selected Message"))
 		lines = appendLimitedDetailLines(lines, chatBubbleLines(item, message, true, width), detailBodyLimit(m.compactDetail))
 	}
 	if title, thread := m.threadSection(item, width); len(thread) > 0 {
@@ -3896,6 +3896,20 @@ func indentMarkdownLines(value string, indent, width int) []string {
 	return out
 }
 
+func prefixedMarkdownLines(value, prefix string, width int) []string {
+	prefix = strings.TrimRight(prefix, "\t")
+	raw := markdownLines(value, maxInt(8, width-lipgloss.Width(prefix)))
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if line == "" {
+			out = append(out, strings.TrimRight(prefix, " "))
+			continue
+		}
+		out = append(out, prefix+line)
+	}
+	return out
+}
+
 func detailContextLines(item Item, includeTitle bool) []string {
 	var lines []string
 	fields := []string{
@@ -4043,16 +4057,18 @@ func sortChatIndexesByTime(items []Item, indexes []int) {
 func chatBubbleLines(item Item, text string, selected bool, width int) []string {
 	var lines []string
 	prefix := "  "
+	bodyPrefix := "    "
 	if selected {
 		prefix = "> "
+		bodyPrefix = ">   "
 	}
-	header := joinNonEmpty([]string{itemAuthor(item), shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt))}, "  ")
+	header := joinNonEmpty([]string{itemAuthor(item), shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt)), rowAge(item)}, "  ")
 	if header != "" {
 		lines = append(lines, prefix+header)
 	}
-	body := indentMarkdownLines(text, lipgloss.Width(prefix)+2, width)
+	body := prefixedMarkdownLines(text, bodyPrefix, width)
 	if len(body) == 0 {
-		body = []string{strings.Repeat(" ", lipgloss.Width(prefix)+2) + "(empty)"}
+		body = []string{bodyPrefix + "(empty)"}
 	}
 	lines = append(lines, body...)
 	return lines
