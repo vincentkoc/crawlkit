@@ -45,6 +45,7 @@ var (
 const (
 	wheelScrollDelay      = 16 * time.Millisecond
 	wheelMaxBufferedDelta = 6
+	refreshInterval       = 15 * time.Second
 	doubleClickWindow     = 450 * time.Millisecond
 	rowsPaneAccent        = "#5bc0eb"
 	contextPaneAccent     = "#9bc53d"
@@ -70,6 +71,14 @@ const (
 
 type wheelScrollMsg struct {
 	seq int
+}
+
+type refreshTickMsg struct{}
+
+type refreshResultMsg struct {
+	items  []Item
+	err    error
+	manual bool
 }
 
 type Item struct {
@@ -129,6 +138,8 @@ type Options struct {
 	Title          string
 	EmptyMessage   string
 	Items          []Item
+	Refresh        func(context.Context) ([]Item, error)
+	RefreshEvery   time.Duration
 	Layout         LayoutPreset
 	SourceKind     string
 	SourceLocation string
@@ -141,6 +152,8 @@ type BrowseOptions struct {
 	Title          string
 	EmptyMessage   string
 	Rows           []Row
+	Refresh        func(context.Context) ([]Row, error)
+	RefreshEvery   time.Duration
 	JSON           bool
 	Layout         LayoutPreset
 	SourceKind     string
@@ -163,6 +176,7 @@ func ControlsHelp() string {
   v              cycle group view
   d              toggle detail mode
   l              toggle wide layout
+  r              refresh rows from the archive
   o              open selected URL
   c              copy selected URL
   wheel or j/k   scroll focused pane
@@ -182,13 +196,35 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(opts.Rows)
 	}
-	items := make([]Item, 0, len(opts.Rows))
 	layout := opts.Layout
 	if layout == LayoutAuto {
 		layout = inferLayout(opts.Rows)
 	}
-	for _, row := range opts.Rows {
-		items = append(items, row.ItemForLayout(layout))
+	rows := opts.Rows
+	if len(rows) == 0 && opts.Refresh != nil {
+		refreshed, err := opts.Refresh(ctx)
+		if err != nil {
+			return err
+		}
+		rows = refreshed
+		if opts.Layout == LayoutAuto {
+			layout = inferLayout(rows)
+		}
+	}
+	items := rowItemsForLayout(rows, layout)
+	var refreshItems func(context.Context) ([]Item, error)
+	if opts.Refresh != nil {
+		refreshItems = func(ctx context.Context) ([]Item, error) {
+			rows, err := opts.Refresh(ctx)
+			if err != nil {
+				return nil, err
+			}
+			nextLayout := layout
+			if opts.Layout == LayoutAuto {
+				nextLayout = inferLayout(rows)
+			}
+			return rowItemsForLayout(rows, nextLayout), nil
+		}
 	}
 	title := strings.TrimSpace(opts.Title)
 	if title == "" {
@@ -208,6 +244,8 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		Title:          title,
 		EmptyMessage:   empty,
 		Items:          items,
+		Refresh:        refreshItems,
+		RefreshEvery:   opts.RefreshEvery,
 		Layout:         layout,
 		SourceKind:     opts.SourceKind,
 		SourceLocation: opts.SourceLocation,
@@ -222,6 +260,14 @@ func Browse(ctx context.Context, opts BrowseOptions) error {
 		return fmt.Errorf("%w; run %s tui from a TTY or pass --json", err, app)
 	}
 	return err
+}
+
+func rowItemsForLayout(rows []Row, layout LayoutPreset) []Item {
+	items := make([]Item, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, row.ItemForLayout(layout))
+	}
+	return items
 }
 
 func (r Row) Item() Item {
@@ -295,6 +341,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer restoreTerminalOutput(output)
 	model := newModel(opts)
+	model.ctx = ctx
 	if width, height, ok := terminalSize(input, output); ok {
 		model.width = width
 		model.height = height
@@ -469,6 +516,9 @@ func compactTitle(value string) string {
 type model struct {
 	title          string
 	items          []Item
+	refresh        func(context.Context) ([]Item, error)
+	refreshEvery   time.Duration
+	ctx            context.Context
 	filtered       []int
 	groups         []itemGroup
 	selected       int
@@ -495,6 +545,7 @@ type model struct {
 	groupMode      groupMode
 	compactDetail  bool
 	showHelp       bool
+	refreshing     bool
 	status         string
 	layoutMode     layoutMode
 	menuOpen       bool
@@ -555,6 +606,7 @@ const (
 	actionCopyFirstLink
 	actionCopyAllLinks
 	actionBackToActions
+	actionRefresh
 	actionQuit
 	actionSortDefault
 	actionSortCount
@@ -606,6 +658,9 @@ func newModel(opts Options) model {
 	m := model{
 		title:          strings.TrimSpace(opts.Title),
 		items:          append([]Item(nil), opts.Items...),
+		refresh:        opts.Refresh,
+		refreshEvery:   opts.RefreshEvery,
+		ctx:            context.Background(),
 		width:          100,
 		height:         30,
 		focus:          focusRows,
@@ -618,6 +673,9 @@ func newModel(opts Options) model {
 	}
 	if m.title == "" {
 		m.title = "archive"
+	}
+	if m.refresh != nil && m.refreshEvery <= 0 {
+		m.refreshEvery = refreshInterval
 	}
 	m.applyFilter()
 	m.applyInitialGroupMode()
@@ -677,7 +735,7 @@ type itemGroup struct {
 }
 
 func (m model) Init() tea.Cmd {
-	return nil
+	return m.refreshTickCmd()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -691,6 +749,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.applyQueuedWheelScroll()
+		return m, nil
+	case refreshTickMsg:
+		return m, tea.Batch(m.startRefresh(false), m.refreshTickCmd())
+	case refreshResultMsg:
+		m.finishRefresh(typed)
 		return m, nil
 	case tea.MouseMsg:
 		if typed.Action == tea.MouseActionMotion && typed.Button == tea.MouseButtonNone {
@@ -843,6 +906,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleLayout()
 		case "d":
 			m.toggleDetailMode()
+		case "r":
+			return m, m.startRefresh(true)
 		case "v":
 			m.cycleGroupMode()
 		case "esc":
@@ -1124,6 +1189,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		{label: "Sort focused pane", action: actionSortMenu},
 		{label: "Filter rows...", action: actionStartFilter},
 		{label: "Jump to row...", action: actionStartJump},
+		{label: "Refresh rows", action: actionRefresh},
 		{label: "Toggle wide layout", action: actionToggleLayout},
 		{label: detailModeToggleLabel(m.compactDetail), action: actionToggleDetail},
 		{label: groupModeToggleLabel(m.layoutPreset, m.groupMode), action: actionCycleGroup},
@@ -1209,6 +1275,7 @@ func (m model) helpLines(width int) []string {
 		"  s: cycle group sort",
 		"  m: cycle member sort",
 		"  S: sort focused pane",
+		"  r: refresh rows from the archive",
 		"  v: cycle group view",
 		"  d: toggle compact/full detail",
 		"  l: toggle wide layout",
@@ -1369,6 +1436,8 @@ func (m *model) runMenuItem(item menuItem) tea.Cmd {
 	case actionCopyAllLinks:
 		m.copyAllReferenceLinks()
 		m.closeMenu()
+	case actionRefresh:
+		return m.startRefresh(true)
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
 	case actionSortCount:
@@ -1445,6 +1514,70 @@ func (m *model) finishJump() {
 	}
 	m.jumpMode = false
 	m.jumpQuery = ""
+}
+
+func (m model) refreshTickCmd() tea.Cmd {
+	if m.refresh == nil || m.refreshEvery <= 0 {
+		return nil
+	}
+	return tea.Tick(m.refreshEvery, func(time.Time) tea.Msg {
+		return refreshTickMsg{}
+	})
+}
+
+func (m *model) startRefresh(manual bool) tea.Cmd {
+	if m.refresh == nil {
+		if manual {
+			m.status = "Refresh unavailable"
+		}
+		return nil
+	}
+	m.closeMenu()
+	m.showHelp = false
+	m.refreshing = true
+	if manual {
+		m.status = "Refreshing rows"
+	}
+	ctx := m.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	refresh := m.refresh
+	return func() tea.Msg {
+		items, err := refresh(ctx)
+		return refreshResultMsg{items: items, err: err, manual: manual}
+	}
+}
+
+func (m *model) finishRefresh(msg refreshResultMsg) {
+	m.refreshing = false
+	if msg.err != nil {
+		m.status = "Refresh failed: " + msg.err.Error()
+		return
+	}
+	previousSignature := itemSignature(m.items)
+	previousKey := ""
+	if item, ok := m.selectedItem(); ok {
+		previousKey = itemStableKey(item)
+	}
+	m.items = append([]Item(nil), msg.items...)
+	m.applyFilter()
+	if previousKey != "" {
+		m.selectItemByStableKey(previousKey)
+	}
+	m.ensureVisible()
+	nextSignature := itemSignature(m.items)
+	if previousSignature == nextSignature {
+		if msg.manual {
+			m.status = "Rows already current"
+		}
+		return
+	}
+	if msg.manual {
+		m.status = fmt.Sprintf("Refreshed %d row(s)", len(m.items))
+		return
+	}
+	m.status = fmt.Sprintf("Auto refreshed %d row(s)", len(m.items))
 }
 
 func (m *model) toggleLayout() {
@@ -1768,6 +1901,9 @@ func (m model) renderFooter(width int) string {
 	} else if m.jumpMode {
 		line = "Jump: " + m.jumpQuery
 	}
+	if m.refreshing {
+		line = "Refreshing rows  " + line
+	}
 	if location := m.footerLocation(); location != "" {
 		line += "  " + location
 	}
@@ -2018,15 +2154,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  wheel scroll  / filter  # jump  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  r refresh  wheel scroll  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  / filter  # jump  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  r refresh  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu a actions o open c copy s sort m members v group d detail l layout / filter # jump ? help q quit"
+	return "Tab panes click menu a actions o open c copy s sort m members v group d detail l layout r refresh / filter # jump ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -2640,6 +2776,25 @@ func (m *model) selectItemIndex(itemIndex int) {
 	}
 }
 
+func (m *model) selectItemByStableKey(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	for filteredIndex, itemIndex := range m.filtered {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		if itemStableKey(m.items[itemIndex]) == key {
+			m.selected = filteredIndex
+			m.contextOffset = 0
+			m.detailView.GotoTop()
+			return true
+		}
+	}
+	return false
+}
+
 func (s sortMode) Label() string {
 	switch s {
 	case sortCount:
@@ -2722,6 +2877,34 @@ func compareStrings(left, right string) (bool, bool) {
 		return true, true
 	}
 	return left < right, true
+}
+
+func itemStableKey(item Item) string {
+	parts := []string{
+		strings.TrimSpace(item.Source),
+		strings.TrimSpace(item.Kind),
+		strings.TrimSpace(item.ID),
+	}
+	if strings.Join(parts, "") != "" && strings.TrimSpace(item.ID) != "" {
+		return strings.Join(parts, "\x00")
+	}
+	return strings.Join([]string{
+		strings.TrimSpace(item.Source),
+		strings.TrimSpace(item.Kind),
+		strings.TrimSpace(item.Container),
+		strings.TrimSpace(item.Author),
+		strings.TrimSpace(item.Title),
+		strings.TrimSpace(item.CreatedAt),
+		strings.TrimSpace(item.UpdatedAt),
+	}, "\x00")
+}
+
+func itemSignature(items []Item) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		parts = append(parts, itemStableKey(item)+"\x00"+strings.TrimSpace(item.Title)+"\x00"+strings.TrimSpace(item.UpdatedAt)+"\x00"+strings.TrimSpace(item.CreatedAt))
+	}
+	return strings.Join(parts, "\x1f")
 }
 
 func (m model) positionLabel() string {

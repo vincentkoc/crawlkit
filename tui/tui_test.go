@@ -1265,20 +1265,50 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	}
 }
 
+func TestRefreshKeyReloadsRowsLikeGitcrawl(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "Amy", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+		Refresh: func(context.Context) ([]Item, error) {
+			return []Item{
+				Row{Kind: "message", ID: "m1", Container: "general", Author: "Amy", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+				Row{Kind: "message", ID: "m2", Container: "general", Author: "Bob", Title: "new", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+			}, nil
+		},
+	})
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = updated.(model)
+	if cmd == nil || !m.refreshing || m.status != "Refreshing rows" {
+		t.Fatalf("refresh did not start, cmd=%v refreshing=%v status=%q", cmd, m.refreshing, m.status)
+	}
+	updated, _ = m.Update(cmd())
+	m = updated.(model)
+	if m.refreshing || len(m.items) != 2 || m.status != "Refreshed 2 row(s)" {
+		t.Fatalf("refresh result not applied, refreshing=%v items=%d status=%q", m.refreshing, len(m.items), m.status)
+	}
+	item, ok := m.selectedItem()
+	if !ok || item.ID != "m1" {
+		t.Fatalf("refresh should preserve selected row by id, item=%#v ok=%v", item, ok)
+	}
+}
+
 func TestHelpPaneRendersUniversalControls(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
 		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
 	})
 	m.width = 160
-	m.height = 34
+	m.height = 40
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	if !m.showHelp || m.menuOpen || m.focus != focusDetail {
 		t.Fatalf("help should render in detail pane, showHelp=%v menu=%v focus=%v", m.showHelp, m.menuOpen, m.focus)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Crawlkit TUI", "right click: open a stable action menu", "o: open selected URL", "c: copy selected URL", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "left click: focus/select a pane row"} {
+	for _, want := range []string{"Crawlkit TUI", "right click: open a stable action menu", "o: open selected URL", "c: copy selected URL", "r: refresh rows from the archive", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "left click: focus/select a pane row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help pane missing %q:\n%s", want, view)
 		}
@@ -1531,7 +1561,7 @@ func TestRightClickPlacesFloatingMenu(t *testing.T) {
 		t.Fatalf("menu rect not placed: %#v", m.menuRect)
 	}
 	view := m.View()
-	if !strings.Contains(view, "Pane") || !strings.Contains(view, "Toggle wide layout") {
+	if !strings.Contains(view, "Pane") || !strings.Contains(view, "Refresh rows") {
 		t.Fatalf("floating menu missing expected sections:\n%s", view)
 	}
 }
