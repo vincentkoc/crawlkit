@@ -984,8 +984,11 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 	m.height = 30
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
+	if m.status != "Row Actions" {
+		t.Fatalf("action menu status = %q, want Row Actions", m.status)
+	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Detail full", "Actions", "current selection", "Open selected URL"} {
+	for _, want := range []string{"Detail full", "Actions", "Row Actions", "current selection", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}

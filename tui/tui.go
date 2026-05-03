@@ -1248,6 +1248,7 @@ func (m *model) openMenu(title string, items []menuItem) {
 	m.showHelp = false
 	m.menuOpen = true
 	m.menuTitle = title
+	m.status = firstNonEmpty(title, "Actions")
 	m.menuItems = append([]menuItem(nil), items...)
 	m.menuIndex = m.firstSelectableMenuIndex()
 	m.menuOff = 0
@@ -1755,8 +1756,6 @@ func (m model) renderFooter(width int) string {
 		line = "Filtering"
 	} else if m.jumpMode {
 		line = "Jump: " + m.jumpQuery
-	} else if m.menuOpen {
-		line = "Menu"
 	}
 	if location := m.footerLocation(); location != "" {
 		line += "  " + location
