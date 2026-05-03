@@ -21,4 +21,5 @@
 - Add gitcrawl-style `a` action-menu shortcut, context-specific action menu titles, and double-click-to-open selected archive rows.
 - Add gitcrawl-style body-link actions for opening or copying links found in selected chat messages and document previews.
 - Refine the shared TUI toward `gitcrawl` parity with semantic pane titles, compact readable detail by default, bounded document previews, and conversation-window fallback for unthreaded chat messages.
+- Match more of the `gitcrawl` interaction model in the shared TUI: action menus now keep the detail pane chrome, and `s`/`m` cycle group/member sorting while `S` opens the full sort menu.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
