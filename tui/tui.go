@@ -519,6 +519,14 @@ type rect struct {
 	h int
 }
 
+type tableColumn struct {
+	Key   string
+	Title string
+	Width int
+}
+
+type tableRow []string
+
 type archiveLayout struct {
 	rows    rect
 	context rect
@@ -545,7 +553,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = maxInt(typed.Width, 40)
-		m.height = maxInt(typed.Height, 12)
+		m.height = maxInt(typed.Height, 24)
 		m.ensureVisible()
 	case wheelScrollMsg:
 		if typed.seq != m.wheelSeq {
@@ -985,7 +993,7 @@ func (m *model) toggleLayout() {
 
 func (m model) View() string {
 	width := maxInt(m.width, 40)
-	height := maxInt(m.height, 12)
+	height := maxInt(m.height, 24)
 	layout := m.layout()
 	header := m.renderHeader(width)
 	rows := m.renderRowsPane(layout.rows)
@@ -1033,53 +1041,49 @@ func (m model) renderHeader(width int) string {
 }
 
 func (m model) renderRowsPane(rect rect) string {
-	lines := []string{groupListHeader(paneContentWidth(rect.w), m.sortMode)}
+	width := tableViewportWidth(rect)
+	height := rowsViewportHeight(rect.h)
+	columns := groupColumns(width, m.sortMode)
+	rows := m.groupTableRows(columns)
 	if m.filterMode {
-		lines = append(lines, accentStyle().Render("filter> ")+m.query)
+		rows = append([]tableRow{messageTableRow(columns, "filter> "+m.query)}, rows...)
 	}
 	if len(m.groups) == 0 {
-		lines = append(lines, mutedStyle(rect.w).Render("no rows match"))
-	} else {
-		current := m.currentGroupIndex()
-		for _, index := range m.visibleGroups() {
-			group := m.groups[index]
-			selected := index == current
-			prefix := "  "
-			if selected {
-				prefix = "> "
-			}
-			line := prefix + groupListLine(group, paneContentWidth(rect.w)-lipgloss.Width(prefix))
-			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusRows).Render(line))
-		}
+		rows = []tableRow{messageTableRow(columns, "no rows match")}
 	}
-	return pane(m.groupPaneTitle(), m.groupPositionLabel(), lines, rect, focusRows, m.focus, rowsPaneAccent)
+	current := m.currentGroupIndex()
+	tableView := renderStyledTable(columns, rows, m.offset, height, width, rowsPaneAccent, func(index int) lipgloss.Style {
+		if index < 0 || index >= len(m.groups) {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
+		}
+		return rowStyle(width, index == current, m.focus == focusRows)
+	})
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusRows, m.focus, m.groupPaneTitle()+"  "+m.groupPositionLabel()), tableView)
+	return paneStyle(focusRows, m.focus, rect.w, rect.h, rowsPaneAccent).Render(content)
 }
 
 func (m model) renderContextPane(rect rect) string {
+	width := tableViewportWidth(rect)
+	height := rowsViewportHeight(rect.h)
 	group, ok := m.currentGroup()
 	if !ok {
 		return pane(m.memberPaneTitle(), "", []string{"No group selected."}, rect, focusContext, m.focus, contextPaneAccent)
 	}
-	lines := []string{rowListHeader(paneContentWidth(rect.w), m.sortMode)}
 	members := m.currentGroupMembers()
+	columns := memberColumns(width, m.sortMode)
+	rows := m.memberTableRows(columns, members)
 	if len(members) == 0 {
-		lines = append(lines, mutedStyle(rect.w).Render("no rows in group"))
-	} else {
-		selectedItem := m.currentItemIndex()
-		start := clampInt(m.contextOffset, 0, maxInt(0, len(members)-rowsViewportHeight(rect.h)))
-		end := minInt(len(members), start+rowsViewportHeight(rect.h))
-		for _, itemIndex := range members[start:end] {
-			item := m.items[itemIndex]
-			selected := itemIndex == selectedItem
-			prefix := "  "
-			if selected {
-				prefix = "> "
-			}
-			line := prefix + rowListLine(item, paneContentWidth(rect.w)-lipgloss.Width(prefix))
-			lines = append(lines, rowStyle(paneContentWidth(rect.w), selected, m.focus == focusContext).Render(line))
-		}
+		rows = []tableRow{messageTableRow(columns, "no rows in group")}
 	}
-	return pane(m.memberPaneTitle(), group.Title, lines, rect, focusContext, m.focus, contextPaneAccent)
+	selectedItem := m.currentItemIndex()
+	tableView := renderStyledTable(columns, rows, m.contextOffset, height, width, contextPaneAccent, func(index int) lipgloss.Style {
+		if index < 0 || index >= len(members) {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
+		}
+		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext)
+	})
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusContext, m.focus, m.memberPaneTitle()+"  "+group.Title), tableView)
+	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
 }
 
 func (m model) renderDetailPane(rect rect) string {
@@ -1743,7 +1747,7 @@ func (m model) visibleGroups() []int {
 
 func (m model) layout() archiveLayout {
 	width := maxInt(m.width, 80)
-	height := maxInt(m.height, 16)
+	height := maxInt(m.height, 24)
 	bodyH := maxInt(8, height-3)
 	if width >= 140 {
 		if m.layoutMode == layoutModeRightStack {
@@ -2117,6 +2121,244 @@ func paneContentHeight(height int) int {
 
 func rowsViewportHeight(height int) int {
 	return maxInt(1, paneContentHeight(height)-1)
+}
+
+func tableViewportWidth(rect rect) int {
+	return maxInt(1, rect.w-4)
+}
+
+func renderStyledTable(columns []tableColumn, rows []tableRow, offset, height, width int, headerColor string, styleForRow func(index int) lipgloss.Style) string {
+	height = maxInt(1, height)
+	width = maxInt(1, width)
+	lines := make([]string, 0, height+1)
+	lines = append(lines, renderTableHeader(columns, width, headerColor))
+	for line := 0; line < height; line++ {
+		index := offset + line
+		if index < 0 || index >= len(rows) {
+			lines = append(lines, lipgloss.NewStyle().Width(width).Render(""))
+			continue
+		}
+		lines = append(lines, renderTableRow(columns, rows[index], width, styleForRow(index)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func renderTableHeader(columns []tableColumn, width int, headerColor string) string {
+	values := make(tableRow, 0, len(columns))
+	for _, column := range columns {
+		values = append(values, column.Title)
+	}
+	line := truncateCells(renderTableCells(columns, values), width)
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(headerColor)).Width(width).Render(line)
+}
+
+func renderTableRow(columns []tableColumn, row tableRow, width int, rowStyle lipgloss.Style) string {
+	line := truncateCells(renderTableCells(columns, row), width)
+	return rowStyle.Width(width).Render(line)
+}
+
+func renderTableCells(columns []tableColumn, row tableRow) string {
+	cells := make([]string, 0, minInt(len(columns), len(row)))
+	for index, value := range row {
+		if index >= len(columns) || columns[index].Width <= 0 {
+			continue
+		}
+		column := columns[index]
+		cells = append(cells, padCells(truncateCells(value, column.Width), column.Width))
+	}
+	return strings.Join(cells, " ")
+}
+
+func messageTableRow(columns []tableColumn, message string) tableRow {
+	row := make(tableRow, len(columns))
+	if len(row) > 0 {
+		row[len(row)-1] = message
+	}
+	return row
+}
+
+func (m model) groupTableRows(columns []tableColumn) []tableRow {
+	if len(m.groups) == 0 {
+		return nil
+	}
+	rows := make([]tableRow, 0, len(m.groups))
+	for _, group := range m.groups {
+		row := make(tableRow, 0, len(columns))
+		for _, column := range columns {
+			switch column.Key {
+			case "kind":
+				row = append(row, group.Kind)
+			case "count":
+				row = append(row, fmt.Sprintf("%d", group.Count))
+			case "time":
+				row = append(row, shortTimestamp(group.Latest))
+			case "age":
+				row = append(row, ageFromTimestamp(group.Latest))
+			case "scope":
+				row = append(row, group.Scope)
+			default:
+				row = append(row, group.Title)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow {
+	rows := make([]tableRow, 0, len(members))
+	for _, itemIndex := range members {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		item := m.items[itemIndex]
+		title := item.Title
+		if item.Depth > 0 {
+			title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
+		}
+		row := make(tableRow, 0, len(columns))
+		for _, column := range columns {
+			switch column.Key {
+			case "kind":
+				row = append(row, rowKind(item))
+			case "time":
+				row = append(row, rowWhen(item))
+			case "age":
+				row = append(row, rowAge(item))
+			case "container":
+				row = append(row, rowWhere(item))
+			case "author":
+				row = append(row, itemAuthor(item))
+			default:
+				row = append(row, title)
+			}
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func groupColumns(width int, active sortMode) []tableColumn {
+	width = maxInt(24, width)
+	if width < 44 {
+		countW := 3
+		ageW := 4
+		titleW := maxInt(1, width-countW-ageW-2)
+		return []tableColumn{
+			{Key: "count", Title: "n", Width: countW},
+			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+			{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+		}
+	}
+	if width < 68 {
+		kindW := 8
+		countW := 3
+		ageW := 4
+		titleW := maxInt(1, width-kindW-countW-ageW-3)
+		return []tableColumn{
+			{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
+			{Key: "count", Title: "n", Width: countW},
+			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+			{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+		}
+	}
+	kindW := minInt(maxInt(6, width/8), 10)
+	countW := minInt(maxInt(4, width/12), 7)
+	timeW := minInt(maxInt(12, width/5), 18)
+	ageW := minInt(maxInt(4, width/16), 7)
+	scopeW := minInt(maxInt(8, width/7), 16)
+	titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
+	return []tableColumn{
+		{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
+		{Key: "count", Title: "count", Width: countW},
+		{Key: "time", Title: activeTimeLabel("latest", active), Width: timeW},
+		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+		{Key: "scope", Title: activeLabel("scope", active == sortScope), Width: scopeW},
+		{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+	}
+}
+
+func memberColumns(width int, active sortMode) []tableColumn {
+	width = maxInt(24, width)
+	if width < 34 {
+		whenW := 5
+		titleW := maxInt(1, width-whenW-1)
+		return []tableColumn{
+			{Key: "time", Title: activeTimeLabel("date", active), Width: whenW},
+			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
+		}
+	}
+	if width < 68 {
+		whenW := 5
+		ageW := 4
+		authorW := minInt(maxInt(5, width/6), 9)
+		titleW := maxInt(1, width-whenW-ageW-authorW-3)
+		return []tableColumn{
+			{Key: "time", Title: activeTimeLabel("date", active), Width: whenW},
+			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+			{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
+			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
+		}
+	}
+	kindW := minInt(maxInt(5, width/10), 10)
+	whenW := minInt(maxInt(10, width/6), 16)
+	ageW := minInt(maxInt(4, width/16), 7)
+	whereW := minInt(maxInt(10, width/5), 22)
+	authorW := minInt(maxInt(8, width/7), 18)
+	titleW := maxInt(1, width-kindW-whenW-ageW-whereW-authorW-5)
+	return []tableColumn{
+		{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
+		{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
+		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+		{Key: "container", Title: activeLabel("where", active == sortContainer || active == sortScope), Width: whereW},
+		{Key: "author", Title: activeLabel("author", active == sortAuthor), Width: authorW},
+		{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
+	}
+}
+
+func activeLabel(label string, active bool) string {
+	if active {
+		return label + "*"
+	}
+	return label
+}
+
+func activeTimeLabel(label string, active sortMode) string {
+	switch active {
+	case sortNewest:
+		return label + "-"
+	case sortOldest:
+		return label + "+"
+	default:
+		return label
+	}
+}
+
+func columnLeftEdge(columns []tableColumn, index int) int {
+	left := 0
+	for i := 0; i < index && i < len(columns); i++ {
+		left += columns[i].Width + 1
+	}
+	return left
+}
+
+func columnRightEdge(columns []tableColumn, index int) int {
+	if index < 0 || index >= len(columns) {
+		return 0
+	}
+	return columnLeftEdge(columns, index) + columns[index].Width
+}
+
+func columnAt(columns []tableColumn, x int) tableColumn {
+	if len(columns) == 0 {
+		return tableColumn{}
+	}
+	for index, column := range columns {
+		if x < columnRightEdge(columns, index) {
+			return column
+		}
+	}
+	return columns[len(columns)-1]
 }
 
 func compactNonEmpty(lines []string) []string {
@@ -2737,29 +2979,15 @@ func compactRowListHeader(width int, active sortMode) string {
 }
 
 func (m *model) sortGroupsFromHeader(x, width int) {
-	if width >= 24 && width < 68 {
-		m.sortCompactGroupHeader(x, width)
-		return
-	}
-	if width < 68 {
-		m.setSortMode(sortTitle)
-		return
-	}
-	kindW := minInt(maxInt(6, width/8), 10)
-	countW := minInt(maxInt(4, width/12), 7)
-	timeW := minInt(maxInt(12, width/5), 18)
-	ageW := minInt(maxInt(4, width/16), 7)
-	scopeW := minInt(maxInt(8, width/7), 16)
-	switch {
-	case x < kindW:
+	column := columnAt(groupColumns(width, m.sortMode), x)
+	switch column.Key {
+	case "kind":
 		m.setSortMode(sortKind)
-	case x < kindW+1+countW:
+	case "count":
 		return
-	case x < kindW+1+countW+1+timeW:
+	case "time", "age":
 		m.toggleTimeSort()
-	case x < kindW+1+countW+1+timeW+1+ageW:
-		m.toggleTimeSort()
-	case x < kindW+1+countW+1+timeW+1+ageW+1+scopeW:
+	case "scope":
 		m.setSortMode(sortScope)
 	default:
 		m.setSortMode(sortTitle)
@@ -2767,79 +2995,15 @@ func (m *model) sortGroupsFromHeader(x, width int) {
 }
 
 func (m *model) sortMembersFromHeader(x, width int) {
-	if width >= 24 && width < 68 {
-		m.sortCompactMemberHeader(x, width)
-		return
-	}
-	if width < 68 {
-		m.setSortMode(sortTitle)
-		return
-	}
-	kindW := minInt(maxInt(5, width/10), 10)
-	whenW := minInt(maxInt(10, width/6), 16)
-	ageW := minInt(maxInt(4, width/16), 7)
-	whereW := minInt(maxInt(10, width/5), 22)
-	authorW := minInt(maxInt(8, width/7), 18)
-	switch {
-	case x < kindW:
+	column := columnAt(memberColumns(width, m.sortMode), x)
+	switch column.Key {
+	case "kind":
 		m.setSortMode(sortKind)
-	case x < kindW+1+whenW:
+	case "time", "age":
 		m.toggleTimeSort()
-	case x < kindW+1+whenW+1+ageW:
-		m.toggleTimeSort()
-	case x < kindW+1+whenW+1+ageW+1+whereW:
+	case "container":
 		m.setSortMode(sortContainer)
-	case x < kindW+1+whenW+1+ageW+1+whereW+1+authorW:
-		m.setSortMode(sortAuthor)
-	default:
-		m.setSortMode(sortTitle)
-	}
-}
-
-func (m *model) sortCompactGroupHeader(x, width int) {
-	countW := 3
-	ageW := 4
-	if width >= 44 {
-		kindW := 8
-		switch {
-		case x < kindW:
-			m.setSortMode(sortKind)
-		case x < kindW+1+countW:
-			return
-		case x < kindW+1+countW+1+ageW:
-			m.toggleTimeSort()
-		default:
-			m.setSortMode(sortTitle)
-		}
-		return
-	}
-	switch {
-	case x < countW:
-		return
-	case x < countW+1+ageW:
-		m.toggleTimeSort()
-	default:
-		m.setSortMode(sortTitle)
-	}
-}
-
-func (m *model) sortCompactMemberHeader(x, width int) {
-	if width < 34 {
-		whenW := 5
-		if x < whenW {
-			m.toggleTimeSort()
-			return
-		}
-		m.setSortMode(sortTitle)
-		return
-	}
-	whenW := 5
-	ageW := 4
-	authorW := minInt(maxInt(5, width/6), 9)
-	switch {
-	case x < whenW+1+ageW:
-		m.toggleTimeSort()
-	case x < whenW+1+ageW+1+authorW:
+	case "author":
 		m.setSortMode(sortAuthor)
 	default:
 		m.setSortMode(sortTitle)

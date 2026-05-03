@@ -12,6 +12,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func stripANSI(value string) string {
+	return regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`).ReplaceAllString(value, "")
+}
+
 func TestBrowseJSONUsesUniversalRows(t *testing.T) {
 	var out bytes.Buffer
 	rows := []Row{{
@@ -133,6 +137,28 @@ func TestRowsPaneUsesStableColumns(t *testing.T) {
 	}
 	if strings.Contains(line, "vincent  2026") {
 		t.Fatalf("row line should not dump raw subtitle: %q", line)
+	}
+}
+
+func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "one", Scope: "T1", Container: "general", Author: "Amy", Title: "first update", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "two", Scope: "T1", Container: "general", Author: "Zed", Title: "second update", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 300
+	m.height = 28
+	view := stripANSI(m.View())
+	for _, want := range []string{"type", "count", "latest", "scope", "group", "kind", "time", "where", "author", "title"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("table view missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "> general") || strings.Contains(view, "> first update") {
+		t.Fatalf("pane tables should use row styling instead of prompt prefixes:\n%s", view)
 	}
 }
 
@@ -863,7 +889,7 @@ func TestModelRenderUsesCompleteANSISequencesWhenNarrow(t *testing.T) {
 	m.width = 24
 	m.height = 12
 	view := m.View()
-	withoutValidEscapes := regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`).ReplaceAllString(view, "")
+	withoutValidEscapes := stripANSI(view)
 	if strings.Contains(withoutValidEscapes, "\x1b") {
 		t.Fatalf("view contains broken escape sequence: %q", view)
 	}
