@@ -1281,6 +1281,7 @@ func (m model) helpLines(width int) []string {
 		"  l: toggle wide layout",
 		"  o: open selected URL",
 		"  c: copy selected URL",
+		"  auto-refresh: archive changes are picked up every 15s when refresh is available",
 		"  Enter in menu: run action or open link picker",
 		"  b in submenu: back to actions",
 	}

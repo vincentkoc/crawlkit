@@ -1335,7 +1335,7 @@ func TestHelpPaneRendersUniversalControls(t *testing.T) {
 		t.Fatalf("help should render in detail pane, showHelp=%v menu=%v focus=%v", m.showHelp, m.menuOpen, m.focus)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Crawlkit TUI", "right click: open a stable action menu", "o: open selected URL", "c: copy selected URL", "r: refresh rows from the archive", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "left click: focus/select a pane row"} {
+	for _, want := range []string{"Crawlkit TUI", "right click: open a stable action menu", "o: open selected URL", "c: copy selected URL", "r: refresh rows from the archive", "auto-refresh: archive changes are picked up every 15", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "left click: focus/select a pane row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help pane missing %q:\n%s", want, view)
 		}
