@@ -2020,7 +2020,16 @@ func actionMenuColors(context paneFocus) actionMenuPalette {
 }
 
 func actionMenuSubtitle(context paneFocus) string {
-	return "current selection"
+	switch context {
+	case focusRows:
+		return "group scope"
+	case focusContext:
+		return "selected row scope"
+	case focusDetail:
+		return "detail scope"
+	default:
+		return "current selection"
+	}
 }
 
 func actionMenuTitle(context paneFocus) string {
