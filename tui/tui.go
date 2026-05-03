@@ -59,6 +59,10 @@ const (
 	archiveRemoteFooterBG = "#d3b35f"
 	archiveLocalFooterBG  = "#8fb8d8"
 	archiveFooterFG       = "#05070d"
+	archiveActiveRowFG    = "#f2c94c"
+	archiveActiveRowBG    = "#14130f"
+	archiveInactiveRowFG  = "#8793a3"
+	archiveInactiveRowBG  = "#0f141b"
 )
 
 type wheelScrollMsg struct {
@@ -1459,7 +1463,7 @@ func (m model) renderRowsPane(rect rect) string {
 		if index < 0 || index >= len(m.groups) {
 			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
 		}
-		return rowStyle(width, index == current, m.focus == focusRows)
+		return rowStyle(width, index == current, m.focus == focusRows, false)
 	})
 	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusRows, m.focus, m.groupPaneTitle()+"  "+m.groupPositionLabel()), tableView)
 	return paneStyle(focusRows, m.focus, rect.w, rect.h, rowsPaneAccent).Render(content)
@@ -1483,7 +1487,7 @@ func (m model) renderContextPane(rect rect) string {
 		if index < 0 || index >= len(members) {
 			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
 		}
-		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext)
+		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext, itemInactive(m.items[members[index]]))
 	})
 	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusContext, m.focus, m.memberPaneTitle()+"  "+group.Title), tableView)
 	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
@@ -4063,9 +4067,19 @@ func tagStyle(width int) lipgloss.Style {
 		Width(width)
 }
 
-func rowStyle(width int, selected bool, focused bool) lipgloss.Style {
+func rowStyle(width int, selected bool, focused bool, inactive bool) lipgloss.Style {
 	style := lipgloss.NewStyle().Width(width)
 	if selected {
+		if inactive {
+			if focused {
+				return style.
+					Foreground(lipgloss.Color("#d6dde8")).
+					Background(lipgloss.Color("#303744"))
+			}
+			return style.
+				Foreground(lipgloss.Color("#aab2bf")).
+				Background(lipgloss.Color("#242936"))
+		}
 		if focused {
 			return style.
 				Foreground(lipgloss.Color(archiveSelectedFG)).
@@ -4075,7 +4089,31 @@ func rowStyle(width int, selected bool, focused bool) lipgloss.Style {
 			Foreground(lipgloss.Color(archiveBlurSelectedFG)).
 			Background(lipgloss.Color(archiveBlurSelectedBG))
 	}
-	return style.Foreground(lipgloss.Color(archiveTextFG))
+	if inactive {
+		return style.
+			Foreground(lipgloss.Color(archiveInactiveRowFG)).
+			Background(lipgloss.Color(archiveInactiveRowBG))
+	}
+	return style.
+		Foreground(lipgloss.Color(archiveActiveRowFG)).
+		Background(lipgloss.Color(archiveActiveRowBG))
+}
+
+func itemInactive(item Item) bool {
+	for _, value := range []string{
+		fieldValue(item, "status"),
+		fieldValue(item, "state"),
+		fieldValue(item, "deleted"),
+		fieldValue(item, "archived"),
+		fieldValue(item, "closed"),
+		item.Kind,
+	} {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "closed", "deleted", "archived", "inactive", "local", "true":
+			return true
+		}
+	}
+	return false
 }
 
 func floatingMenuStyle(width, height int, palette actionMenuPalette) lipgloss.Style {

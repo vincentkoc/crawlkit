@@ -1215,7 +1215,7 @@ func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
 }
 
 func TestRowStyleUsesSubtleSelectedPalette(t *testing.T) {
-	selected := rowStyle(80, true, true)
+	selected := rowStyle(80, true, true, false)
 	if fmt.Sprint(selected.GetForeground()) != archiveSelectedFG {
 		t.Fatalf("selected foreground = %v, want %s", selected.GetForeground(), archiveSelectedFG)
 	}
@@ -1225,9 +1225,20 @@ func TestRowStyleUsesSubtleSelectedPalette(t *testing.T) {
 	if fmt.Sprint(selected.GetBackground()) == "#2f3f56" {
 		t.Fatal("selected row still uses the old high-contrast blue block")
 	}
-	blurred := rowStyle(80, true, false)
+	blurred := rowStyle(80, true, false, false)
 	if fmt.Sprint(blurred.GetBackground()) != archiveBlurSelectedBG {
 		t.Fatalf("blurred selected background = %v, want %s", blurred.GetBackground(), archiveBlurSelectedBG)
+	}
+	active := rowStyle(80, false, false, false)
+	if fmt.Sprint(active.GetForeground()) != archiveActiveRowFG || fmt.Sprint(active.GetBackground()) != archiveActiveRowBG {
+		t.Fatalf("active row style fg/bg = %v/%v", active.GetForeground(), active.GetBackground())
+	}
+	inactive := rowStyle(80, false, false, true)
+	if fmt.Sprint(inactive.GetForeground()) != archiveInactiveRowFG || fmt.Sprint(inactive.GetBackground()) != archiveInactiveRowBG {
+		t.Fatalf("inactive row style fg/bg = %v/%v", inactive.GetForeground(), inactive.GetBackground())
+	}
+	if !itemInactive(Item{Fields: map[string]string{"deleted": "true"}}) || itemInactive(Item{Fields: map[string]string{"deleted": "false"}}) {
+		t.Fatal("inactive item detection did not follow status fields")
 	}
 }
 
