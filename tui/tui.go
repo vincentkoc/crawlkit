@@ -1599,7 +1599,7 @@ func (m model) renderHeader(width int) string {
 	} else if m.jumpMode {
 		line += "  jump> " + m.jumpQuery
 	} else if m.menuOpen {
-		line += "  menu> " + m.menuTitle
+		line += "  menu> " + m.displayMenuTitle()
 	}
 	return titleStyle(width).Render(padCells(" "+truncateCells(line, maxInt(1, width-2)), width))
 }
@@ -1953,7 +1953,7 @@ func footerControls(width int) string {
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu a actions o open c copy s sort m members d detail / filter # jump ? help q quit"
+	return "Tab panes click menu a actions o open c copy s sort m members v group d detail l layout / filter # jump ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -2442,12 +2442,16 @@ func (m model) layout() archiveLayout {
 				mode:    string(layoutModeRightStack),
 			}
 		}
-		rowsW := maxInt(48, width*34/100)
-		contextW := maxInt(40, width*28/100)
+		rowsW := maxInt(42, width*34/100)
+		contextW := maxInt(38, width*30/100)
 		detailW := width - rowsW - contextW
-		if detailW < 42 {
-			detailW = 42
-			contextW = maxInt(30, width-rowsW-detailW)
+		if detailW < 40 {
+			deficit := 40 - detailW
+			shrinkRows := minInt(deficit, maxInt(0, rowsW-42))
+			rowsW -= shrinkRows
+			deficit -= shrinkRows
+			shrinkContext := minInt(deficit, maxInt(0, contextW-38))
+			contextW -= shrinkContext
 		}
 		return archiveLayout{
 			rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
@@ -3032,6 +3036,18 @@ func (m model) groupColumns(width int) []tableColumn {
 	countLabel := m.groupCountLabel(width)
 	titleLabel := m.groupTitleLabel()
 	if width < 44 {
+		if width >= 36 {
+			countW := 3
+			timeW := 5
+			ageW := 4
+			titleW := maxInt(1, width-countW-timeW-ageW-3)
+			return []tableColumn{
+				{Key: "count", Title: countLabel, Width: countW},
+				{Key: "time", Title: activeTimeLabel("date", active), Width: timeW},
+				{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+				{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+			}
+		}
 		countW := 3
 		ageW := 4
 		titleW := maxInt(1, width-countW-ageW-2)
@@ -3788,6 +3804,14 @@ func groupListLine(group itemGroup, width int) string {
 func compactGroupListLine(group itemGroup, width int) string {
 	countW := 3
 	ageW := 4
+	if width >= 36 && width < 44 {
+		timeW := 5
+		titleW := maxInt(1, width-countW-timeW-ageW-3)
+		return padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+			padCells(truncateCells(compactDateFromTimestamp(group.Latest), timeW), timeW) + " " +
+			padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
+			truncateCells(group.Title, titleW)
+	}
 	if width >= 44 {
 		if width >= 52 {
 			kindW := 8
@@ -3863,6 +3887,17 @@ func compactGroupListHeader(width int, active sortMode) string {
 	}
 	countW := 3
 	ageW := 4
+	if width >= 36 && width < 44 {
+		timeLabel := "TIME"
+		if active == sortNewest || active == sortOldest {
+			timeLabel = "TIME v"
+		}
+		titleW := maxInt(1, width-countW-5-ageW-3)
+		return padCells(truncateCells(count, countW), countW) + " " +
+			padCells(truncateCells(timeLabel, 5), 5) + " " +
+			padCells(truncateCells(age, ageW), ageW) + " " +
+			truncateCells(title, titleW)
+	}
 	if width >= 44 {
 		if width >= 52 {
 			kindW := 8

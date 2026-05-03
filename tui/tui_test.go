@@ -346,6 +346,14 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 			t.Fatalf("compact row columns missing %q:\n%s\n%s", want, rowHeader, rowLine)
 		}
 	}
+
+	tmuxGroupHeader := groupListHeader(38, sortDefault)
+	tmuxGroupLine := groupListLine(group, 38)
+	for _, want := range []string{"N", "TIME", "AGE", "GROUP", "05-02", "github-secure"} {
+		if !strings.Contains(tmuxGroupHeader+tmuxGroupLine, want) {
+			t.Fatalf("tmux-width group columns missing %q:\n%s\n%s", want, tmuxGroupHeader, tmuxGroupLine)
+		}
+	}
 }
 
 func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
@@ -1402,6 +1410,30 @@ func TestWideTmuxPanesPreferThreeColumns(t *testing.T) {
 	}
 	if layout.rows.h != layout.context.h || layout.context.h != layout.detail.h {
 		t.Fatalf("panes should share height in column mode: %#v", layout)
+	}
+	if paneContentWidth(layout.context.w) < 34 {
+		t.Fatalf("context pane too narrow for useful columns: %#v", layout)
+	}
+	if paneContentWidth(layout.rows.w) < 36 {
+		t.Fatalf("rows pane too narrow for date/age columns: %#v", layout)
+	}
+}
+
+func TestNarrowColumnLayoutKeepsDateAgeAndAuthorColumns(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "github-secure-session-4", Author: "Vincent Koc", Title: "Im working on adding", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 122
+	m.height = 30
+	view := stripANSI(m.View())
+	for _, want := range []string{"msg", "date", "age", "channel", "time", "who", "title", "05-02", "Vincent"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("narrow column layout missing %q:\n%s", want, view)
+		}
 	}
 }
 
