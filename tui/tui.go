@@ -2349,13 +2349,16 @@ func (m model) visibleGroups() []int {
 
 func (m model) layout() archiveLayout {
 	width := maxInt(m.width, 80)
-	height := maxInt(m.height, 24)
-	bodyH := maxInt(8, height-3)
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	bodyH := maxInt(1, height-3)
 	if width >= 140 {
 		if m.layoutMode == layoutModeRightStack {
 			rowsW := maxInt(56, width*44/100)
 			rightW := width - rowsW
-			contextH := maxInt(8, bodyH*42/100)
+			contextH := clampInt(maxInt(3, bodyH*42/100), 1, maxInt(1, bodyH-1))
 			return archiveLayout{
 				rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
 				context: rect{x: rowsW, y: 1, w: rightW, h: contextH},
@@ -2378,7 +2381,7 @@ func (m model) layout() archiveLayout {
 		}
 	}
 	if width >= 100 {
-		topH := maxInt(8, bodyH/2)
+		topH := clampInt(maxInt(4, bodyH/2), 1, maxInt(1, bodyH-1))
 		rowsW := width / 2
 		return archiveLayout{
 			rows:    rect{x: 0, y: 1, w: rowsW, h: topH},
@@ -2388,9 +2391,9 @@ func (m model) layout() archiveLayout {
 			mode:    "split",
 		}
 	}
-	rowsH := minInt(maxInt(5, bodyH*36/100), maxInt(3, bodyH-6))
-	contextH := minInt(maxInt(4, bodyH*28/100), maxInt(3, bodyH-rowsH-3))
-	detailH := maxInt(3, bodyH-rowsH-contextH)
+	rowsH := clampInt(maxInt(3, bodyH*36/100), 1, maxInt(1, bodyH-2))
+	contextH := clampInt(maxInt(2, bodyH*28/100), 1, maxInt(1, bodyH-rowsH-1))
+	detailH := maxInt(1, bodyH-rowsH-contextH)
 	return archiveLayout{
 		rows:    rect{x: 0, y: 1, w: width, h: rowsH},
 		context: rect{x: 0, y: 1 + rowsH, w: width, h: contextH},

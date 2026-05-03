@@ -715,7 +715,7 @@ func TestLeftClickSelectsRowUnderPointer(t *testing.T) {
 	}
 	m := newModel(Options{Title: "archive", Items: items})
 	m.width = 100
-	m.height = 16
+	m.height = 24
 	layout := m.layout()
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.rows.x + 2,
