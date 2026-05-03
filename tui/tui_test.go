@@ -295,6 +295,14 @@ func TestViewRespectsShortTerminalHeight(t *testing.T) {
 	if !strings.Contains(lines[0], "slacrawl archive") {
 		t.Fatalf("short terminal should keep header visible:\n%s", view)
 	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 180, Height: 18})
+	m = updated.(model)
+	view = stripANSI(m.View())
+	lines = strings.Split(view, "\n")
+	if len(lines) != 18 || !strings.Contains(lines[0], "slacrawl archive") {
+		t.Fatalf("window resize should preserve short terminal height, lines=%d:\n%s", len(lines), view)
+	}
 }
 
 func TestCompactWidthKeepsUsefulColumns(t *testing.T) {

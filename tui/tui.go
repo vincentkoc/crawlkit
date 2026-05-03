@@ -663,7 +663,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch typed := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = maxInt(typed.Width, 40)
-		m.height = maxInt(typed.Height, 24)
+		m.height = maxInt(typed.Height, 1)
 		m.ensureVisible()
 	case wheelScrollMsg:
 		if typed.seq != m.wheelSeq {
