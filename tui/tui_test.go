@@ -84,7 +84,7 @@ func TestBrowseJSONEncodesNilRowsAsEmptyArray(t *testing.T) {
 
 func TestControlsHelpDocumentsGitcrawlLikeActions(t *testing.T) {
 	help := ControlsHelp()
-	for _, want := range []string{"right-click", "a or m", "s", "/", "#", "v", "d", "l", "o", "c", "q"} {
+	for _, want := range []string{"right-click", "a", "m", "s", "S", "/", "#", "v", "d", "l", "o", "c", "q"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("controls help missing %q:\n%s", want, help)
 		}
@@ -373,7 +373,7 @@ func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
 
 func TestQQuitsFromMenuAndFilterModes(t *testing.T) {
 	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
 	if !m.menuOpen {
 		t.Fatal("menu did not open")
@@ -1105,7 +1105,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 			Row{Kind: "page", Title: "Alpha"}.ItemForLayout(LayoutDocument),
 		},
 	})
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if !m.menuOpen || m.menuTitle != "Sort Groups" {
 		t.Fatalf("sort menu open=%v title=%q", m.menuOpen, m.menuTitle)
@@ -1147,7 +1147,7 @@ func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
 	for _, group := range m.groups {
 		beforeGroups = append(beforeGroups, group.Title)
 	}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if !m.menuOpen || m.menuTitle != "Sort Members" {
 		t.Fatalf("sort menu title = %q open=%v", m.menuTitle, m.menuOpen)
@@ -1189,6 +1189,27 @@ func TestNewestSortUsesStructuredRowMetadata(t *testing.T) {
 	}
 }
 
+func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "a", Container: "general", Author: "Amy", Title: "first", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "b", Container: "general", Author: "Bob", Title: "second", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
+	m = updated.(model)
+	if m.menuOpen || m.sortMode != sortNewest || !strings.Contains(m.status, "Sort: newest") {
+		t.Fatalf("s should cycle group sort, menu=%v sort=%v status=%q", m.menuOpen, m.sortMode, m.status)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = updated.(model)
+	if m.menuOpen || m.memberSortMode != sortNewest || !strings.Contains(m.status, "Member sort: newest") {
+		t.Fatalf("m should cycle member sort, menu=%v member=%v status=%q", m.menuOpen, m.memberSortMode, m.status)
+	}
+}
+
 func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
@@ -1199,7 +1220,7 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	view := stripANSI(m.View())
-	for _, want := range []string{"Help", "Right click or a/m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "#: jump to row", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Help", "Right click or a", "o: open selected URL", "c: copy selected URL", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}

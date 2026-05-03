@@ -153,8 +153,10 @@ func ControlsHelp() string {
   Tab/arrow      focus panes
   click          select rows and headers
   right-click    open pane action menu
-  a or m         open action menu
-  s              sort focused pane
+  a              open action menu
+  s              cycle group sort
+  m              cycle member sort
+  S              sort focused pane
   /              filter rows
   #              jump to row
   v              cycle group view
@@ -807,8 +809,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "#":
 			m.startJump()
 		case "s":
+			m.cycleSortMode()
+		case "m":
+			m.cycleMemberSortMode()
+		case "S":
 			m.openSortMenuFor(m.focus)
-		case "a", "m":
+		case "a":
 			m.openActionMenu()
 		case "?":
 			m.openHelpMenu()
@@ -1139,12 +1145,14 @@ func (m *model) openHelpMenu() {
 		menuSection("Mouse"),
 		{label: "Tab/arrow: select pane", action: actionClose},
 		{label: "Mouse click: select pane/row", action: actionClose},
-		{label: "Right click or a/m: floating actions", action: actionClose},
+		{label: "Right click or a: floating actions", action: actionClose},
 		{label: "Click row header: sort", action: actionClose},
 		menuSection("Keyboard"),
 		{label: "o: open selected URL", action: actionClose},
 		{label: "c: copy selected URL", action: actionClose},
-		{label: "s: sort focused pane", action: actionClose},
+		{label: "s: cycle group sort", action: actionClose},
+		{label: "m: cycle member sort", action: actionClose},
+		{label: "S: sort focused pane", action: actionClose},
 		{label: "d: toggle detail mode", action: actionClose},
 		{label: "v: cycle group view", action: actionClose},
 		{label: "l: toggle layout", action: actionClose},
@@ -1937,15 +1945,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  a/m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  # jump  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  l layout  wheel scroll  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  v group  d detail  / filter  # jump  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  m members  v group  d detail  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu a actions o open c copy s sort v group d detail / filter # jump ? help q quit"
+	return "Tab panes click menu a actions o open c copy s sort m members d detail / filter # jump ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -2122,6 +2130,35 @@ func (m *model) setPaneSortMode(mode sortMode) {
 		return
 	}
 	m.setSortMode(mode)
+}
+
+func (m *model) cycleSortMode() {
+	order := []sortMode{sortDefault, sortNewest, sortOldest}
+	m.setSortMode(nextSortMode(m.sortMode, order))
+	m.status = "Sort: " + m.sortMode.Label()
+}
+
+func (m *model) cycleMemberSortMode() {
+	order := []sortMode{sortDefault, sortNewest, sortOldest, sortTitle}
+	if m.layoutPreset == LayoutChat {
+		order = []sortMode{sortDefault, sortNewest, sortOldest, sortAuthor, sortTitle}
+	} else if m.layoutPreset == LayoutDocument {
+		order = []sortMode{sortDefault, sortNewest, sortOldest, sortTitle, sortKind, sortContainer}
+	}
+	m.setMemberSortMode(nextSortMode(m.memberSortMode, order))
+	m.status = "Member sort: " + m.memberSortMode.Label()
+}
+
+func nextSortMode(current sortMode, order []sortMode) sortMode {
+	if len(order) == 0 {
+		return sortDefault
+	}
+	for index, mode := range order {
+		if mode == current {
+			return order[(index+1)%len(order)]
+		}
+	}
+	return order[0]
 }
 
 func (m model) currentItemIndex() int {
