@@ -2926,11 +2926,11 @@ func groupColumns(width int, active sortMode) []tableColumn {
 		}
 	}
 	if width < 68 {
-		kindW := 8
 		countW := 3
+		timeW := 5
 		ageW := 4
 		if width >= 52 {
-			timeW := 5
+			kindW := 8
 			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
 			return []tableColumn{
 				{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
@@ -2940,10 +2940,10 @@ func groupColumns(width int, active sortMode) []tableColumn {
 				{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 			}
 		}
-		titleW := maxInt(1, width-kindW-countW-ageW-3)
+		titleW := maxInt(1, width-countW-timeW-ageW-3)
 		return []tableColumn{
-			{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
 			{Key: "count", Title: "n", Width: countW},
+			{Key: "time", Title: activeTimeLabel("time", active), Width: timeW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
 			{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 		}
@@ -3544,8 +3544,8 @@ func compactGroupListLine(group itemGroup, width int) string {
 	countW := 3
 	ageW := 4
 	if width >= 44 {
-		kindW := 8
 		if width >= 52 {
+			kindW := 8
 			timeW := 5
 			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
 			return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
@@ -3554,9 +3554,10 @@ func compactGroupListLine(group itemGroup, width int) string {
 				padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
 				truncateCells(group.Title, titleW)
 		}
-		titleW := maxInt(1, width-kindW-countW-ageW-3)
-		return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
-			padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+		timeW := 5
+		titleW := maxInt(1, width-countW-timeW-ageW-3)
+		return padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+			padCells(truncateCells(compactDateFromTimestamp(group.Latest), timeW), timeW) + " " +
 			padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
 			truncateCells(group.Title, titleW)
 	}
@@ -3618,12 +3619,12 @@ func compactGroupListHeader(width int, active sortMode) string {
 	countW := 3
 	ageW := 4
 	if width >= 44 {
-		kindW := 8
-		kind := "TYPE"
-		if active == sortKind {
-			kind = "TYPE v"
-		}
 		if width >= 52 {
+			kindW := 8
+			kind := "TYPE"
+			if active == sortKind {
+				kind = "TYPE v"
+			}
 			timeLabel := "TIME"
 			if active == sortNewest || active == sortOldest {
 				timeLabel = "TIME v"
@@ -3635,9 +3636,13 @@ func compactGroupListHeader(width int, active sortMode) string {
 				padCells(truncateCells(age, ageW), ageW) + " " +
 				truncateCells(title, titleW)
 		}
-		titleW := maxInt(1, width-kindW-countW-ageW-3)
-		return padCells(truncateCells(kind, kindW), kindW) + " " +
-			padCells(truncateCells(count, countW), countW) + " " +
+		timeLabel := "TIME"
+		if active == sortNewest || active == sortOldest {
+			timeLabel = "TIME v"
+		}
+		titleW := maxInt(1, width-countW-5-ageW-3)
+		return padCells(truncateCells(count, countW), countW) + " " +
+			padCells(truncateCells(timeLabel, 5), 5) + " " +
 			padCells(truncateCells(age, ageW), ageW) + " " +
 			truncateCells(title, titleW)
 	}
