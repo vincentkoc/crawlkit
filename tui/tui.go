@@ -1188,6 +1188,8 @@ func (m model) helpLines(width int) []string {
 		"  menu actions: copy, links, filter, jump, sort, layout, group view, detail, quit",
 		"",
 		"Keyboard",
+		"  ?: toggle this help",
+		"  q: quit",
 		"  Tab / Shift-Tab: cycle focus",
 		"  arrows or j/k: move selection or scroll detail",
 		"  PageUp/PageDown: page the active pane",
@@ -1205,8 +1207,6 @@ func (m model) helpLines(width int) []string {
 		"  c: copy selected URL",
 		"  Enter in menu: run action or open link picker",
 		"  b in submenu: back to actions",
-		"  ?: toggle this help",
-		"  q: quit",
 	}
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
