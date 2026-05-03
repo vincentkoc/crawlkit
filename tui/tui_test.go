@@ -159,6 +159,29 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	}
 }
 
+func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
+	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
+	groupHeader := groupListHeader(28, sortDefault)
+	groupLine := groupListLine(group, 28)
+	for _, want := range []string{"N", "AGE", "GROUP", "18", "github-secure"} {
+		if !strings.Contains(groupHeader+groupLine, want) {
+			t.Fatalf("narrow group columns missing %q:\n%s\n%s", want, groupHeader, groupLine)
+		}
+	}
+
+	rowHeader := rowListHeader(28, sortDefault)
+	rowLine := rowListLine(Item{
+		Title:     "Im working on adding",
+		Author:    "Vincent Koc",
+		CreatedAt: "2026-05-02T12:00:00Z",
+	}, 28)
+	for _, want := range []string{"DATE", "TITLE", "05-02", "Im working"} {
+		if !strings.Contains(rowHeader+rowLine, want) {
+			t.Fatalf("narrow row columns missing %q:\n%s\n%s", want, rowHeader, rowLine)
+		}
+	}
+}
+
 func TestQQuitsFromMenuAndFilterModes(t *testing.T) {
 	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
@@ -209,13 +232,36 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 	lines := m.detailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"general  bob", "Message", "reply message", "Thread", "alice", "root message", "Metadata", "parent=m1"} {
+	for _, want := range []string{"general  bob", "Thread", "alice", "root message", "> bob", "reply message", "Properties", "IDs", "parent=m1"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("chat detail missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Index(joined, "Message") > strings.Index(joined, "Metadata") {
-		t.Fatalf("chat detail should put readable content before metadata:\n%s", joined)
+	if strings.Index(joined, "Thread") > strings.Index(joined, "Properties") {
+		t.Fatalf("chat detail should put readable content before properties:\n%s", joined)
+	}
+}
+
+func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "new", Container: "general", Author: "bob", Title: "new", CreatedAt: "2026-05-01T10:02:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "old", Container: "general", Author: "alice", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	members := m.currentGroupMembers()
+	if len(members) != 2 {
+		t.Fatalf("members = %#v", members)
+	}
+	if got := m.items[members[0]].ID; got != "old" {
+		t.Fatalf("first member = %q, want oldest message first", got)
+	}
+	m.setSortMode(sortNewest)
+	members = m.currentGroupMembers()
+	if got := m.items[members[0]].ID; got != "new" {
+		t.Fatalf("newest sort first member = %q, want newest message first", got)
 	}
 }
 
@@ -651,6 +697,32 @@ func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
 	}
 	if !strings.Contains(item.Subtitle, "page") || !strings.Contains(item.Subtitle, "2026-05-01") {
 		t.Fatalf("subtitle = %q", item.Subtitle)
+	}
+}
+
+func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
+	item := Row{
+		Source:    "notion",
+		Kind:      "page",
+		ID:        "page1",
+		ParentID:  "Launch docs",
+		Scope:     "Workspace",
+		Container: "Roadmap DB",
+		Title:     "Launch plan",
+		Text:      "Ship the terminal UI cleanup.",
+		URL:       "https://example.com/launch",
+		UpdatedAt: "2026-05-01T12:00:00Z",
+		Fields:    map[string]string{"space_id": "space1", "parent_table": "collection"},
+	}.ItemForLayout(LayoutDocument)
+	lines := documentDetailLines(item)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"Launch plan", "Location", "parent=Launch docs", "container=Roadmap DB", "Preview", "Ship the terminal UI cleanup.", "Properties", "updated=2026-05-01 12:00"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("document detail missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Index(joined, "Preview") > strings.Index(joined, "Properties") {
+		t.Fatalf("document preview should come before properties:\n%s", joined)
 	}
 }
 

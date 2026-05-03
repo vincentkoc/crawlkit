@@ -1557,7 +1557,58 @@ func (m *model) buildGroups() {
 		}
 		return strings.ToLower(groups[i].Title) < strings.ToLower(groups[j].Title)
 	})
+	for index := range groups {
+		m.sortGroupMembers(groups[index].Members)
+	}
 	m.groups = groups
+}
+
+func (m model) sortGroupMembers(members []int) {
+	if len(members) < 2 {
+		return
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		left := m.items[members[i]]
+		right := m.items[members[j]]
+		switch m.sortMode {
+		case sortNewest:
+			if less, ok := compareItemTime(left, right, true); ok {
+				return less
+			}
+		case sortOldest:
+			if less, ok := compareItemTime(left, right, false); ok {
+				return less
+			}
+		case sortTitle:
+			if less, ok := compareStrings(left.Title, right.Title); ok {
+				return less
+			}
+		case sortKind:
+			if less, ok := compareStrings(itemKind(left), itemKind(right)); ok {
+				return less
+			}
+		case sortScope, sortContainer:
+			if less, ok := compareStrings(itemContainer(left), itemContainer(right)); ok {
+				return less
+			}
+		case sortAuthor:
+			if less, ok := compareStrings(itemAuthor(left), itemAuthor(right)); ok {
+				return less
+			}
+		default:
+			if m.layoutPreset == LayoutChat {
+				if less, ok := compareItemTime(left, right, false); ok {
+					return less
+				}
+			}
+			if m.layoutPreset == LayoutDocument {
+				if less, ok := compareItemTime(left, right, true); ok {
+					return less
+				}
+			}
+		}
+		return members[i] < members[j]
+	})
 }
 
 func (m model) groupFields(item Item) (key, title, kind, scope string) {
@@ -2167,18 +2218,20 @@ func (m model) chatDetailLines(item Item) []string {
 	if meta := chatMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
-	message := strings.TrimSpace(firstNonEmpty(item.Text, item.Detail, item.Title))
-	if message != "" {
-		lines = append(lines, "", "Message")
-		lines = append(lines, indentWrappedLines(message, 2, 1000)...)
-	}
 	if thread := m.threadLines(item); len(thread) > 0 {
 		lines = append(lines, "", "Thread")
 		lines = append(lines, thread...)
+	} else if message := strings.TrimSpace(firstNonEmpty(item.Text, item.Detail, item.Title)); message != "" {
+		lines = append(lines, "", "Message")
+		lines = append(lines, chatBubbleLines(item, message, true)...)
 	}
-	if metadata := detailContextLines(item, false); len(metadata) > 0 {
-		lines = append(lines, "", "Metadata")
-		lines = append(lines, metadata...)
+	if properties := chatPropertyLines(item); len(properties) > 0 {
+		lines = append(lines, "", "Properties")
+		lines = append(lines, properties...)
+	}
+	if ids := chatIDLines(item); len(ids) > 0 {
+		lines = append(lines, "", "IDs")
+		lines = append(lines, ids...)
 	}
 	if len(lines) == 0 {
 		return []string{"No detail for this message."}
@@ -2193,16 +2246,17 @@ func documentDetailLines(item Item) []string {
 	if meta := documentMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
-	if url := strings.TrimSpace(item.URL); url != "" {
-		lines = append(lines, "url: "+url)
+	if location := documentLocationLines(item); len(location) > 0 {
+		lines = append(lines, "", "Location")
+		lines = append(lines, location...)
 	}
 	preview := documentPreview(item)
 	if preview != "" {
 		lines = append(lines, "", "Preview")
 		lines = append(lines, wrapLines(preview, 1000)...)
 	}
-	if metadata := detailContextLines(item, false); len(metadata) > 0 {
-		lines = append(lines, "", "Metadata")
+	if metadata := documentPropertyLines(item); len(metadata) > 0 {
+		lines = append(lines, "", "Properties")
 		lines = append(lines, metadata...)
 	}
 	if len(lines) == 0 {
@@ -2251,6 +2305,27 @@ func documentPreview(item Item) string {
 		return ""
 	}
 	return detail
+}
+
+func documentLocationLines(item Item) []string {
+	return compactNonEmpty([]string{
+		fieldLine("parent", item.ParentID),
+		fieldLine("container", item.Container),
+		fieldLine("workspace", item.Scope),
+		fieldLine("url", item.URL),
+	})
+}
+
+func documentPropertyLines(item Item) []string {
+	lines := compactNonEmpty([]string{
+		fieldLine("kind", itemKind(item)),
+		fieldLine("source", item.Source),
+		fieldLine("created", shortTimestamp(item.CreatedAt)),
+		fieldLine("updated", shortTimestamp(item.UpdatedAt)),
+		fieldLine("id", item.ID),
+	})
+	lines = append(lines, compactFieldLines(item.Fields, "source", "space_id", "collection_id", "parent_table")...)
+	return lines
 }
 
 func looksLikeFieldDump(value string) bool {
@@ -2331,20 +2406,79 @@ func (m model) threadLines(selected Item) []string {
 		if threadKey(item) != key {
 			continue
 		}
-		prefix := shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt))
-		if author := itemAuthor(item); author != "" {
-			prefix = strings.TrimSpace(prefix + " " + author)
-		}
 		text := firstNonEmpty(item.Text, item.Detail, item.Title)
-		if prefix != "" {
-			lines = append(lines, prefix)
-			lines = append(lines, indentWrappedLines(text, 2, 1000)...)
-			continue
-		}
-		lines = append(lines, text)
+		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID)...)
 	}
 	if len(lines) <= 1 {
 		return nil
+	}
+	return lines
+}
+
+func chatBubbleLines(item Item, text string, selected bool) []string {
+	var lines []string
+	prefix := "  "
+	if selected {
+		prefix = "> "
+	}
+	header := joinNonEmpty([]string{itemAuthor(item), shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt))}, "  ")
+	if header != "" {
+		lines = append(lines, prefix+header)
+	}
+	body := indentWrappedLines(text, lipgloss.Width(prefix)+2, 1000)
+	if len(body) == 0 {
+		body = []string{strings.Repeat(" ", lipgloss.Width(prefix)+2) + "(empty)"}
+	}
+	lines = append(lines, body...)
+	return lines
+}
+
+func chatPropertyLines(item Item) []string {
+	return compactNonEmpty([]string{
+		fieldLine("channel", item.Container),
+		fieldLine("scope", item.Scope),
+		fieldLine("author", itemAuthor(item)),
+		fieldLine("kind", itemKind(item)),
+		fieldLine("source", item.Source),
+		fieldLine("created", shortTimestamp(item.CreatedAt)),
+		fieldLine("updated", shortTimestamp(item.UpdatedAt)),
+		fieldLine("attachments", fieldValue(item, "attachments")),
+		fieldLine("pinned", fieldValue(item, "pinned")),
+		fieldLine("subtype", fieldValue(item, "subtype")),
+	})
+}
+
+func chatIDLines(item Item) []string {
+	lines := compactNonEmpty([]string{
+		fieldLine("id", item.ID),
+		fieldLine("thread", threadKey(item)),
+		fieldLine("parent", item.ParentID),
+	})
+	lines = append(lines, compactFieldLines(item.Fields, "guild_id", "channel_id", "author_id", "user_id", "ts", "reply_to")...)
+	return lines
+}
+
+func compactFieldLines(fields map[string]string, keys ...string) []string {
+	if len(fields) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		value := fieldValue(Item{Fields: fields}, key)
+		if line := fieldLine(key, value); line != "" {
+			lines = append(lines, line)
+		}
+		seen[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
+	}
+	for key, value := range fields {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		if line := fieldLine(key, value); line != "" {
+			lines = append(lines, line)
+		}
 	}
 	return lines
 }
@@ -2370,7 +2504,7 @@ func rowListLine(item Item, width int) string {
 	if item.Depth > 0 {
 		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 	}
-	if width >= 34 && width < 68 {
+	if width >= 24 && width < 68 {
 		return compactRowListLine(item, title, width)
 	}
 	if width < 68 {
@@ -2396,6 +2530,12 @@ func rowListLine(item Item, width int) string {
 }
 
 func compactRowListLine(item Item, title string, width int) string {
+	if width < 34 {
+		whenW := 5
+		titleW := maxInt(1, width-whenW-1)
+		return padCells(truncateCells(compactDate(item), whenW), whenW) + " " +
+			truncateCells(title, titleW)
+	}
 	whenW := 5
 	ageW := 4
 	authorW := minInt(maxInt(5, width/6), 9)
@@ -2408,7 +2548,7 @@ func compactRowListLine(item Item, title string, width int) string {
 
 func groupListLine(group itemGroup, width int) string {
 	width = maxInt(width, 1)
-	if width >= 32 && width < 68 {
+	if width >= 24 && width < 68 {
 		return compactGroupListLine(group, width)
 	}
 	if width < 68 {
@@ -2447,7 +2587,7 @@ func compactGroupListLine(group itemGroup, width int) string {
 
 func groupListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width >= 32 && width < 68 {
+	if width >= 24 && width < 68 {
 		return tagStyle(width).Bold(true).Render(compactGroupListHeader(width, active))
 	}
 	if width < 68 {
@@ -2516,7 +2656,7 @@ func compactGroupListHeader(width int, active sortMode) string {
 
 func rowListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width >= 34 && width < 68 {
+	if width >= 24 && width < 68 {
 		return tagStyle(width).Bold(true).Render(compactRowListHeader(width, active))
 	}
 	if width < 68 {
@@ -2558,6 +2698,11 @@ func rowListHeader(width int, active sortMode) string {
 }
 
 func compactRowListHeader(width int, active sortMode) string {
+	if width < 34 {
+		whenW := 5
+		titleW := maxInt(1, width-whenW-1)
+		return padCells(truncateCells("DATE", whenW), whenW) + " " + truncateCells("TITLE", titleW)
+	}
 	timeLabel := "DATE"
 	age := "AGE"
 	author := "WHO"
