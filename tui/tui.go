@@ -180,6 +180,7 @@ func ControlsHelp() string {
   o              open selected URL
   c              copy selected URL
   wheel or j/k   scroll focused pane
+  auto-refresh   pick up archive changes every 15s when available
   ?              in-app help
   q              quit`)
 }

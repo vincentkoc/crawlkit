@@ -84,7 +84,7 @@ func TestBrowseJSONEncodesNilRowsAsEmptyArray(t *testing.T) {
 
 func TestControlsHelpDocumentsGitcrawlLikeActions(t *testing.T) {
 	help := ControlsHelp()
-	for _, want := range []string{"right-click", "a", "m", "s", "S", "/", "#", "v", "d", "l", "o", "c", "q"} {
+	for _, want := range []string{"right-click", "a", "m", "s", "S", "/", "#", "v", "d", "l", "r", "auto-refresh", "o", "c", "q"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("controls help missing %q:\n%s", want, help)
 		}
