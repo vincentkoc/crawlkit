@@ -33,5 +33,6 @@
 - Keep medium-width group panes focused on count/date/age/name instead of repeating the group kind on every row.
 - Bring shared TUI detail and sort behavior closer to `gitcrawl`: archives open newest-first, group count headers sort like `cnt*`, selected chat messages render before surrounding conversation context, document previews appear before metadata, and detail fields use `key: value` labels.
 - Keep split-width member tables readable by rendering compact dates instead of truncated ISO timestamps.
+- Prioritize gitcrawl-style footer muscle-memory controls in compact tmux panes before app-specific extras.
 - Force the Bubble Tea program to shut down on terminal signals so interrupted TUIs restore terminal modes and do not leave orphaned tmux panes.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
