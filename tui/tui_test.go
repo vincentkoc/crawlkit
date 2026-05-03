@@ -462,7 +462,7 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 	lines := m.detailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"general  bob", "Thread 1-2/2", "alice", "root message", "> bob", "reply message", "Properties", "url=https://example.com/thread", "IDs", "parent=m1"} {
+	for _, want := range []string{"general  bob", "Thread 1-2/2", "alice", "root message", "> bob", "reply message", "Properties", "url: https://example.com/thread", "IDs", "parent: m1"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("chat detail missing %q:\n%s", want, joined)
 		}
@@ -1712,7 +1712,7 @@ func TestDocumentDetailUsesHeaderPreviewLocationProperties(t *testing.T) {
 	}.ItemForLayout(LayoutDocument)
 	lines := documentDetailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Launch plan", "Location", "Parent: Launch docs", "Database: Roadmap DB", "Preview", "Ship the terminal UI cleanup.", "Properties", "updated=2026-05-01 12:00"} {
+	for _, want := range []string{"Launch plan", "Location", "Parent: Launch docs", "Database: Roadmap DB", "Preview", "Ship the terminal UI cleanup.", "Properties", "updated: 2026-05-01 12:00"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("document detail missing %q:\n%s", want, joined)
 		}
@@ -1774,12 +1774,12 @@ func TestDocumentDetailSeparatesProviderAndSource(t *testing.T) {
 		Fields: map[string]string{"source": "desktop", "zeta": "last", "alpha": "first"},
 	}.ItemForLayout(LayoutDocument)
 	joined := strings.Join(documentDetailLines(item), "\n")
-	for _, want := range []string{"provider=notion", "source=desktop"} {
+	for _, want := range []string{"provider: notion", "source: desktop"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("document detail missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "source=notion") {
+	if strings.Contains(joined, "source: notion") {
 		t.Fatalf("document detail should not duplicate provider as source:\n%s", joined)
 	}
 	if strings.Index(joined, "alpha=first") > strings.Index(joined, "zeta=last") {

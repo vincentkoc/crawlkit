@@ -400,7 +400,7 @@ func fieldLine(key, value string) string {
 	if key == "" || value == "" {
 		return ""
 	}
-	return key + "=" + value
+	return key + ": " + value
 }
 
 func parsePositiveInt(value string) (int, error) {
