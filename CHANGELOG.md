@@ -27,4 +27,5 @@
 - Trim redundant chat member columns so message panes prioritize time, age, author, and title instead of repeating the selected channel/kind on every row.
 - Default single-channel chat archives to a people/group view so the left pane stays useful for Discord and Slack data.
 - Match `gitcrawl` TUI resize breakpoints: 140+ columns use three panes, 100-139 uses top split plus full-width detail, and narrow terminals stack.
+- Include selected chat row URLs in full detail properties so message panes expose the same useful link context as `gitcrawl`.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

@@ -3740,6 +3740,7 @@ func chatPropertyLines(item Item) []string {
 		fieldLine("source", item.Source),
 		fieldLine("created", shortTimestamp(item.CreatedAt)),
 		fieldLine("updated", shortTimestamp(item.UpdatedAt)),
+		fieldLine("url", item.URL),
 		fieldLine("attachments", fieldValue(item, "attachments")),
 		fieldLine("pinned", fieldValue(item, "pinned")),
 		fieldLine("subtype", fieldValue(item, "subtype")),

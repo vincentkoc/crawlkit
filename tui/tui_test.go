@@ -451,7 +451,7 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 		Layout: LayoutChat,
 		Items: []Item{
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
-			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "reply message", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "reply message", URL: "https://example.com/thread", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.compactDetail = false
@@ -462,7 +462,7 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 	lines := m.detailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"general  bob", "Thread", "alice", "root message", "> bob", "reply message", "Properties", "IDs", "parent=m1"} {
+	for _, want := range []string{"general  bob", "Thread", "alice", "root message", "> bob", "reply message", "Properties", "url=https://example.com/thread", "IDs", "parent=m1"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("chat detail missing %q:\n%s", want, joined)
 		}
