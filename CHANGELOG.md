@@ -29,4 +29,5 @@
 - Match `gitcrawl` TUI resize breakpoints: 140+ columns use three panes, 100-139 uses top split plus full-width detail, and narrow terminals stack.
 - Include selected chat row URLs in full detail properties so message panes expose the same useful link context as `gitcrawl`.
 - Align shared TUI pane accents, header, footer, and selected-row colors with the current `gitcrawl` terminal browser palette.
+- Match `gitcrawl` help behavior by rendering `?` help inside the detail pane instead of replacing the screen with a menu.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

@@ -1231,7 +1231,7 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	}
 }
 
-func TestHelpMenuRendersUniversalControls(t *testing.T) {
+func TestHelpPaneRendersUniversalControls(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
 		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
@@ -1240,11 +1240,19 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	m.height = 34
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
+	if !m.showHelp || m.menuOpen || m.focus != focusDetail {
+		t.Fatalf("help should render in detail pane, showHelp=%v menu=%v focus=%v", m.showHelp, m.menuOpen, m.focus)
+	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Help", "Right click or a", "o: open selected URL", "c: copy selected URL", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Crawlkit TUI", "right click: open a stable action menu", "o: open selected URL", "c: copy selected URL", "s: cycle group sort", "m: cycle member sort", "S: sort focused pane", "v: cycle group view", "#: jump to row", "left click: focus/select a pane row"} {
 		if !strings.Contains(view, want) {
-			t.Fatalf("help menu missing %q:\n%s", want, view)
+			t.Fatalf("help pane missing %q:\n%s", want, view)
 		}
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	m = updated.(model)
+	if m.showHelp {
+		t.Fatal("second ? should close detail help")
 	}
 }
 

@@ -493,6 +493,7 @@ type model struct {
 	memberSortMode sortMode
 	groupMode      groupMode
 	compactDetail  bool
+	showHelp       bool
 	status         string
 	layoutMode     layoutMode
 	menuOpen       bool
@@ -827,8 +828,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openSortMenuFor(m.focus)
 		case "a":
 			m.openActionMenu()
-		case "?":
-			m.openHelpMenu()
+		case "h", "?":
+			m.toggleHelpPane()
 		case "o":
 			m.openSelectedURL()
 		case "c":
@@ -840,7 +841,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "v":
 			m.cycleGroupMode()
 		case "esc":
-			if m.query != "" {
+			if m.showHelp {
+				m.showHelp = false
+				m.status = "Ready"
+			} else if m.query != "" {
 				m.query = ""
 				m.applyFilter()
 			}
@@ -1152,27 +1156,67 @@ func (m *model) openSortMenuFor(context paneFocus) {
 }
 
 func (m *model) openHelpMenu() {
-	m.openMenu("Help", []menuItem{
-		menuSection("Mouse"),
-		{label: "Tab/arrow: select pane", action: actionClose},
-		{label: "Mouse click: select pane/row", action: actionClose},
-		{label: "Right click or a: floating actions", action: actionClose},
-		{label: "Click row header: sort", action: actionClose},
-		menuSection("Keyboard"),
-		{label: "o: open selected URL", action: actionClose},
-		{label: "c: copy selected URL", action: actionClose},
-		{label: "s: cycle group sort", action: actionClose},
-		{label: "m: cycle member sort", action: actionClose},
-		{label: "S: sort focused pane", action: actionClose},
-		{label: "d: toggle detail mode", action: actionClose},
-		{label: "v: cycle group view", action: actionClose},
-		{label: "l: toggle layout", action: actionClose},
-		{label: "/: filter rows", action: actionClose},
-		{label: "#: jump to row", action: actionClose},
-		{label: "j/k or wheel: scroll focused pane", action: actionClose},
-		{label: "enter: detail pane", action: actionClose},
-		{label: "q: quit", action: actionQuit},
-	})
+	m.closeMenu()
+	m.showHelp = true
+	m.focus = focusDetail
+	m.detailView.GotoTop()
+	m.status = "Help"
+}
+
+func (m *model) toggleHelpPane() {
+	m.closeMenu()
+	m.showHelp = !m.showHelp
+	if m.showHelp {
+		m.focus = focusDetail
+		m.detailView.GotoTop()
+		m.status = "Help"
+		return
+	}
+	m.status = "Ready"
+}
+
+func (m model) helpLines(width int) []string {
+	lines := []string{
+		bold("Crawlkit TUI"),
+		"",
+		"Mouse",
+		"  left click: focus/select a pane row",
+		"  left click menu row: run that action",
+		"  wheel: scroll the pane under the pointer",
+		"  wheel in menu: move the highlighted action",
+		"  right click: open a stable action menu",
+		"  menu actions: copy, links, filter, jump, sort, layout, group view, detail, quit",
+		"",
+		"Keyboard",
+		"  Tab / Shift-Tab: cycle focus",
+		"  arrows or j/k: move selection or scroll detail",
+		"  PageUp/PageDown: page the active pane",
+		"  Enter: drill into the next pane",
+		"  a: open action menu",
+		"  /: filter rows",
+		"  #: jump to row",
+		"  s: cycle group sort",
+		"  m: cycle member sort",
+		"  S: sort focused pane",
+		"  v: cycle group view",
+		"  d: toggle compact/full detail",
+		"  l: toggle wide layout",
+		"  o: open selected URL",
+		"  c: copy selected URL",
+		"  Enter in menu: run action or open link picker",
+		"  b in submenu: back to actions",
+		"  ?: toggle this help",
+		"  q: quit",
+	}
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "  ") {
+			out = append(out, line)
+			continue
+		}
+		out = append(out, wrapPlain(line, width)...)
+	}
+	return out
 }
 
 func (m *model) openReferenceLinkMenu(mode string) {
@@ -1201,6 +1245,7 @@ func (m *model) openReferenceLinkMenu(mode string) {
 }
 
 func (m *model) openMenu(title string, items []menuItem) {
+	m.showHelp = false
 	m.menuOpen = true
 	m.menuTitle = title
 	m.menuItems = append([]menuItem(nil), items...)
@@ -1338,6 +1383,7 @@ func (m *model) runMenuItem(item menuItem) tea.Cmd {
 
 func (m *model) startFilter() {
 	m.closeMenu()
+	m.showHelp = false
 	m.savedQuery = m.query
 	m.jumpMode = false
 	m.jumpQuery = ""
@@ -1346,6 +1392,7 @@ func (m *model) startFilter() {
 
 func (m *model) startJump() {
 	m.closeMenu()
+	m.showHelp = false
 	m.filterMode = false
 	m.jumpMode = true
 	m.jumpQuery = ""
@@ -1397,12 +1444,14 @@ func (m *model) toggleLayout() {
 }
 
 func (m *model) toggleDetailMode() {
+	m.showHelp = false
 	m.compactDetail = !m.compactDetail
 	m.detailView.GotoTop()
 	m.status = "Detail mode: " + detailModeLabel(m.compactDetail)
 }
 
 func (m *model) cycleGroupMode() {
+	m.showHelp = false
 	order := groupModeCycle(m.layoutPreset)
 	next := order[0]
 	for index, mode := range order {
@@ -1661,6 +1710,9 @@ func (m model) renderContextPane(rect rect) string {
 func (m model) renderDetailPane(rect rect) string {
 	if m.menuOpen && !m.menuFloating {
 		return m.renderDetailViewport(rect, m.menuLines(paneContentWidth(rect.w)))
+	}
+	if m.showHelp {
+		return m.renderDetailViewport(rect, m.helpLines(paneContentWidth(rect.w)))
 	}
 	item, ok := m.selectedItem()
 	if !ok {
