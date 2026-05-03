@@ -1611,7 +1611,7 @@ func (m model) renderRowsPane(rect rect) string {
 		}
 		return rowStyle(width, index == current, m.focus == focusRows, false)
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleForWidth(focusRows, m.focus, m.groupPaneTitle()+"  "+m.groupPositionLabel(), width), tableView)
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleWithLabelForWidth(m.groupPaneTitle(), focusRows, m.focus, m.groupPositionLabel(), width), tableView)
 	return paneStyle(focusRows, m.focus, rect.w, rect.h, rowsPaneAccent).Render(content)
 }
 
@@ -1635,7 +1635,7 @@ func (m model) renderContextPane(rect rect) string {
 		}
 		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext, itemInactive(m.items[members[index]]))
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleForWidth(focusContext, m.focus, m.memberPaneTitle()+"  "+m.memberPositionLabel()+"  "+group.Title, width), tableView)
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleWithLabelForWidth(m.memberPaneTitle(), focusContext, m.focus, m.memberPositionLabel()+"  "+group.Title, width), tableView)
 	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
 }
 
@@ -1666,7 +1666,7 @@ func (m *model) syncDetailViewport() {
 }
 
 func (m *model) configureDetailViewport(rect rect, lines []string) {
-	title := m.detailPaneTitle()
+	title := detailModeLabel(m.compactDetail)
 	if focus := paneFocusLabel(m.focus == focusDetail); focus != "" {
 		title += "  " + focus
 	}
@@ -2770,6 +2770,28 @@ func paneTitleForWidth(pane, focus paneFocus, suffix string, width int) string {
 	}[pane]
 	if strings.TrimSpace(suffix) != "" && strings.TrimSpace(suffix) != label {
 		label += " " + suffix
+	}
+	prefix := "[ ] "
+	if pane == focus {
+		prefix = "[*] "
+	}
+	if width > 0 {
+		label = truncateCells(label, maxInt(1, width-lipgloss.Width(prefix)))
+	}
+	return bold(prefix + label)
+}
+
+func paneTitleWithLabelForWidth(label string, pane, focus paneFocus, suffix string, width int) string {
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = map[paneFocus]string{
+			focusRows:    "Rows",
+			focusContext: "Context",
+			focusDetail:  "Detail",
+		}[pane]
+	}
+	if strings.TrimSpace(suffix) != "" {
+		label += " " + strings.TrimSpace(suffix)
 	}
 	prefix := "[ ] "
 	if pane == focus {

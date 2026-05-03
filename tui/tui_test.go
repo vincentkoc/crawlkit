@@ -258,7 +258,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Thread", "kind", "msgs", "latest", "age", "scope", "channel", "time", "where", "author", "title"} {
+	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "where", "author", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
@@ -1694,7 +1694,7 @@ func TestModelRenderUsesArchivePanesAndSourceFooter(t *testing.T) {
 	m.width = 120
 	m.height = 24
 	view := m.View()
-	for _, want := range []string{"Rows", "Context", "Detail", "remote git@example.com:archive/notcrawl.git", "Roadmap", "product plan"} {
+	for _, want := range []string{"Groups", "Items", "Detail", "remote git@example.com:archive/notcrawl.git", "Roadmap", "product plan"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}
