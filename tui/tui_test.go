@@ -442,6 +442,7 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "reply message", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
+	m.compactDetail = false
 	m.selectItemIndex(1)
 	item, ok := m.selectedItem()
 	if !ok {
@@ -468,6 +469,7 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "> agreed\n`done`", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
+	m.compactDetail = false
 	m.selectItemIndex(1)
 	item, ok := m.selectedItem()
 	if !ok {
@@ -542,6 +544,7 @@ func TestChatDetailKeepsRawIDsBelowReadableSummary(t *testing.T) {
 			}.ItemForLayout(LayoutChat),
 		},
 	})
+	m.compactDetail = false
 	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 64), "\n"))
 	firstSection := strings.Split(joined, "Thread")[0]
 	if strings.Contains(firstSection, "C0AQ7TZR9KP") || strings.Contains(firstSection, "1776788221") {
@@ -563,18 +566,21 @@ func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
-	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
-	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
-		t.Fatalf("full detail should include metadata sections:\n%s", full)
-	}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	m = updated.(model)
 	if !m.compactDetail {
-		t.Fatal("detail mode did not toggle to compact")
+		t.Fatal("detail should default to compact")
 	}
 	compact := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
 	if !strings.Contains(compact, "root message") || strings.Contains(compact, "Properties") || strings.Contains(compact, "IDs") {
 		t.Fatalf("compact detail should keep readable content and hide metadata sections:\n%s", compact)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+	if m.compactDetail {
+		t.Fatal("detail mode did not toggle to full")
+	}
+	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
+		t.Fatalf("full detail should include metadata sections:\n%s", full)
 	}
 	if !strings.Contains(stripANSI(m.View()), "d detail") {
 		t.Fatalf("footer should expose detail toggle:\n%s", stripANSI(m.View()))

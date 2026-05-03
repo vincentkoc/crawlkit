@@ -606,6 +606,7 @@ func newModel(opts Options) model {
 		sourceKind:     normalizeSourceKind(opts.SourceKind),
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 		layoutPreset:   layout,
+		compactDetail:  true,
 		detailView:     viewport.New(1, 1),
 	}
 	if m.title == "" {
