@@ -1567,7 +1567,7 @@ func (m model) renderRowsPane(rect rect) string {
 		}
 		return rowStyle(width, index == current, m.focus == focusRows, false)
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusRows, m.focus, m.groupPaneTitle()+"  "+m.groupPositionLabel()), tableView)
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleForWidth(focusRows, m.focus, m.groupPaneTitle()+"  "+m.groupPositionLabel(), width), tableView)
 	return paneStyle(focusRows, m.focus, rect.w, rect.h, rowsPaneAccent).Render(content)
 }
 
@@ -1591,7 +1591,7 @@ func (m model) renderContextPane(rect rect) string {
 		}
 		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext, itemInactive(m.items[members[index]]))
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusContext, m.focus, m.memberPaneTitle()+"  "+m.memberPositionLabel()+"  "+group.Title), tableView)
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleForWidth(focusContext, m.focus, m.memberPaneTitle()+"  "+m.memberPositionLabel()+"  "+group.Title, width), tableView)
 	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
 }
 
@@ -1626,7 +1626,7 @@ func (m *model) configureDetailViewport(rect rect, lines []string) {
 	if focus := paneFocusLabel(m.focus == focusDetail); focus != "" {
 		title += "  " + focus
 	}
-	content := append([]string{paneTitle(focusDetail, m.focus, title)}, lines...)
+	content := append([]string{paneTitleForWidth(focusDetail, m.focus, title, paneContentWidth(rect.w))}, lines...)
 	m.detailView.Width = paneContentWidth(rect.w)
 	m.detailView.Height = maxInt(1, rect.h-2)
 	m.detailView.MouseWheelEnabled = true
@@ -2712,6 +2712,10 @@ func groupModeToggleLabel(layout LayoutPreset, mode groupMode) string {
 }
 
 func paneTitle(pane, focus paneFocus, suffix string) string {
+	return paneTitleForWidth(pane, focus, suffix, 0)
+}
+
+func paneTitleForWidth(pane, focus paneFocus, suffix string, width int) string {
 	label := map[paneFocus]string{
 		focusRows:    "Rows",
 		focusContext: "Context",
@@ -2723,6 +2727,9 @@ func paneTitle(pane, focus paneFocus, suffix string) string {
 	prefix := "[ ] "
 	if pane == focus {
 		prefix = "[*] "
+	}
+	if width > 0 {
+		label = truncateCells(label, maxInt(1, width-lipgloss.Width(prefix)))
 	}
 	return bold(prefix + label)
 }
@@ -2769,7 +2776,7 @@ func paneScrolled(title, subtitle string, lines []string, rect rect, paneFocus p
 	if strings.TrimSpace(subtitle) != "" {
 		titleLine += "  " + subtitle
 	}
-	header := paneTitle(paneFocus, focus, titleLine)
+	header := paneTitleForWidth(paneFocus, focus, titleLine, contentW)
 	body = append([]string(nil), body[scrollOffset:minInt(len(body), scrollOffset+contentH)]...)
 	for len(body) < contentH {
 		body = append(body, "")

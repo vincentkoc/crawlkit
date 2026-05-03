@@ -265,6 +265,16 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	}
 }
 
+func TestPaneTitlesStaySingleLineAtNarrowWidths(t *testing.T) {
+	title := stripANSI(paneTitleForWidth(focusContext, focusRows, "Messages  1/8 rows  github-secure-session-4", 44))
+	if len(title) > 44 {
+		t.Fatalf("pane title width = %d, want <= 44: %q", len(title), title)
+	}
+	if !strings.Contains(title, "...") {
+		t.Fatalf("pane title should truncate instead of wrapping: %q", title)
+	}
+}
+
 func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	mediumGroupHeader := groupListHeader(46, sortDefault)
