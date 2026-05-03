@@ -313,6 +313,34 @@ func TestQQuitsFromMenuAndFilterModes(t *testing.T) {
 	}
 }
 
+func TestFilterEscRestoresPreviousQuery(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			{Title: "alpha"},
+			{Title: "beta"},
+			{Title: "alphabet"},
+		},
+	})
+	m.query = "alpha"
+	m.applyFilter()
+	if len(m.filtered) != 2 {
+		t.Fatalf("initial filtered rows = %d, want 2", len(m.filtered))
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	m = updated.(model)
+	if m.query != "alphab" || len(m.filtered) != 1 {
+		t.Fatalf("draft query/filter = %q/%d", m.query, len(m.filtered))
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = updated.(model)
+	if m.filterMode || m.query != "alpha" || len(m.filtered) != 2 {
+		t.Fatalf("esc should restore query/filter, mode=%v query=%q filtered=%d", m.filterMode, m.query, len(m.filtered))
+	}
+}
+
 func TestInitialTerminalSizeCanUseTallPane(t *testing.T) {
 	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
 	m.width = 84

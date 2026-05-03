@@ -429,6 +429,7 @@ type model struct {
 	width          int
 	height         int
 	query          string
+	savedQuery     string
 	filterMode     bool
 	focus          paneFocus
 	contextOffset  int
@@ -650,7 +651,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch typed.String() {
 			case "ctrl+c", "ctrl+d", "q":
 				return m, tea.Quit
-			case "enter", "esc":
+			case "enter":
+				m.filterMode = false
+			case "esc":
+				if m.query != m.savedQuery {
+					m.query = m.savedQuery
+					m.applyFilter()
+				}
 				m.filterMode = false
 			case "backspace":
 				if len(m.query) > 0 {
@@ -1149,6 +1156,7 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 
 func (m *model) startFilter() {
 	m.closeMenu()
+	m.savedQuery = m.query
 	m.filterMode = true
 }
 
