@@ -674,13 +674,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		if typed.Action == tea.MouseActionMotion && typed.Button == tea.MouseButtonNone {
 			if m.menuOpen {
-				m.handleMenuMouse(typed)
+				return m, m.handleMenuMouse(typed)
 			}
 			return m, nil
 		}
 		if m.menuOpen {
-			m.handleMenuMouse(typed)
-			return m, nil
+			return m, m.handleMenuMouse(typed)
 		}
 		switch {
 		case typed.Type == tea.MouseWheelUp || typed.Button == tea.MouseButtonWheelUp:
@@ -937,47 +936,47 @@ func (m *model) clearLastClick() {
 	m.lastClickAt = time.Time{}
 }
 
-func (m *model) handleMenuMouse(msg tea.MouseMsg) {
+func (m *model) handleMenuMouse(msg tea.MouseMsg) tea.Cmd {
 	switch {
 	case msg.Type == tea.MouseWheelUp || msg.Button == tea.MouseButtonWheelUp:
 		m.menuIndex = m.nextSelectableMenuIndex(-1)
 		m.keepMenuVisible()
-		return
+		return nil
 	case msg.Type == tea.MouseWheelDown || msg.Button == tea.MouseButtonWheelDown:
 		m.menuIndex = m.nextSelectableMenuIndex(1)
 		m.keepMenuVisible()
-		return
+		return nil
 	case msg.Button == tea.MouseButtonRight && msg.Action == tea.MouseActionPress:
 		m.closeMenu()
-		return
+		return nil
 	}
 	index, ok := m.menuIndexAtMouse(msg.X, msg.Y)
 	if msg.Action == tea.MouseActionMotion {
 		if !ok || index < 0 || index >= len(m.menuItems) {
-			return
+			return nil
 		}
 		m.menuIndex = m.nearestSelectableMenuIndex(index, 1)
 		m.keepMenuVisible()
-		return
+		return nil
 	}
 	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
-		return
+		return nil
 	}
 	if !ok {
 		m.closeMenu()
-		return
+		return nil
 	}
 	if index < 0 || index >= len(m.menuItems) {
-		return
+		return nil
 	}
 	if !m.menuItems[index].selectable() {
 		m.menuIndex = m.nearestSelectableMenuIndex(index, 1)
 		m.keepMenuVisible()
-		return
+		return nil
 	}
 	m.menuIndex = index
 	m.keepMenuVisible()
-	_ = m.runMenuItem(m.menuItems[m.menuIndex])
+	return m.runMenuItem(m.menuItems[m.menuIndex])
 }
 
 func (m model) menuIndexAtMouse(x, y int) (int, bool) {
@@ -985,6 +984,7 @@ func (m model) menuIndexAtMouse(x, y int) (int, bool) {
 	rowOffset := 4
 	if m.menuFloating {
 		menuRect = m.menuRect
+		rowOffset = 3
 	}
 	if !menuRect.contains(x, y) {
 		return 0, false

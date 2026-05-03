@@ -1317,6 +1317,76 @@ func TestRightClickPlacesFloatingMenu(t *testing.T) {
 	}
 }
 
+func TestMouseClickUsesFloatingMenuOffset(t *testing.T) {
+	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	m.width = 140
+	m.height = 32
+	m.menuOpen = true
+	m.menuFloating = true
+	m.menuRect = rect{x: 5, y: 3, w: 40, h: 12}
+	m.menuOff = 5
+	m.menuItems = make([]menuItem, 8)
+	for index := range m.menuItems {
+		m.menuItems[index] = menuItem{label: fmt.Sprintf("Item %d", index), action: actionQuit}
+	}
+
+	updated, cmd := m.Update(tea.MouseMsg{
+		X:      m.menuRect.x + 2,
+		Y:      m.menuRect.y + 3,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+
+	if m.menuIndex != 5 {
+		t.Fatalf("floating menu click selected %d, want offset row 5", m.menuIndex)
+	}
+	if cmd == nil {
+		t.Fatal("floating menu click did not run selected item")
+	}
+	if !m.menuOpen || !m.menuFloating {
+		t.Fatalf("floating menu should stay open for submenu-like actions, open=%v floating=%v", m.menuOpen, m.menuFloating)
+	}
+}
+
+func TestMouseMotionHoversFloatingMenuItems(t *testing.T) {
+	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	m.width = 140
+	m.height = 32
+	m.menuOpen = true
+	m.menuFloating = true
+	m.menuRect = rect{x: 5, y: 3, w: 40, h: 12}
+	m.menuOff = 1
+	m.menuItems = make([]menuItem, 6)
+	for index := range m.menuItems {
+		m.menuItems[index] = menuItem{label: fmt.Sprintf("Item %d", index), action: actionClose}
+	}
+
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      m.menuRect.x + 2,
+		Y:      m.menuRect.y + 5,
+		Button: tea.MouseButtonNone,
+		Action: tea.MouseActionMotion,
+	})
+	m = updated.(model)
+
+	if m.menuIndex != 3 {
+		t.Fatalf("hover selected %d, want item 3", m.menuIndex)
+	}
+
+	updated, _ = m.Update(tea.MouseMsg{
+		X:      m.menuRect.x + 2,
+		Y:      m.menuRect.y + 6,
+		Button: tea.MouseButtonRight,
+		Action: tea.MouseActionMotion,
+	})
+	m = updated.(model)
+
+	if m.menuIndex != 4 {
+		t.Fatalf("right-button hover selected %d, want item 4", m.menuIndex)
+	}
+}
+
 func TestClickingRowsHeaderSorts(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
