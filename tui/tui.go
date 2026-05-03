@@ -27,6 +27,7 @@ var ErrNotTerminal = errors.New("terminal UI requires an interactive terminal")
 var (
 	markdownHeadingRE = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
+	bareLinkRE        = regexp.MustCompile(`(^|[\s(<])(https?://[^\s<>)]+)`)
 	markdownListRE    = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.+)$`)
 	terminalControlRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
 )
@@ -483,6 +484,9 @@ const (
 	actionCopyURL
 	actionCopyTitle
 	actionCopyDetail
+	actionOpenFirstLink
+	actionCopyFirstLink
+	actionCopyAllLinks
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -964,6 +968,16 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		menuSection("Selected"),
 	}
 	items = append(items, selectedItems...)
+	if links := m.selectedReferenceLinks(); len(links) > 0 {
+		items = append(items,
+			menuSection("Links"),
+			menuItem{label: "Open first body link", action: actionOpenFirstLink},
+			menuItem{label: "Copy first body link", action: actionCopyFirstLink},
+		)
+		if len(links) > 1 {
+			items = append(items, menuItem{label: "Copy all body links", action: actionCopyAllLinks})
+		}
+	}
 	items = append(items, []menuItem{
 		menuSection("Pane"),
 		{label: "Focus rows pane", action: actionFocusRows},
@@ -1093,6 +1107,15 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 	case actionCopyDetail:
 		m.copySelectedDetail()
 		m.closeMenu()
+	case actionOpenFirstLink:
+		m.openFirstReferenceLink()
+		m.closeMenu()
+	case actionCopyFirstLink:
+		m.copyFirstReferenceLink()
+		m.closeMenu()
+	case actionCopyAllLinks:
+		m.copyAllReferenceLinks()
+		m.closeMenu()
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
 	case actionSortNewest:
@@ -1204,6 +1227,61 @@ func (m *model) copySelectedDetail() {
 		return
 	}
 	m.status = "Copied selected detail"
+}
+
+func (m *model) openFirstReferenceLink() {
+	link, ok := m.firstReferenceLink()
+	if !ok {
+		m.status = "No body link found"
+		return
+	}
+	if err := openURL(link); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Opened first body link"
+}
+
+func (m *model) copyFirstReferenceLink() {
+	link, ok := m.firstReferenceLink()
+	if !ok {
+		m.status = "No body link found"
+		return
+	}
+	if err := copyText(link); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied first body link"
+}
+
+func (m *model) copyAllReferenceLinks() {
+	links := m.selectedReferenceLinks()
+	if len(links) == 0 {
+		m.status = "No body links found"
+		return
+	}
+	if err := copyText(strings.Join(links, "\n")); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied body links"
+}
+
+func (m model) firstReferenceLink() (string, bool) {
+	links := m.selectedReferenceLinks()
+	if len(links) == 0 {
+		return "", false
+	}
+	return links[0], true
+}
+
+func (m model) selectedReferenceLinks() []string {
+	item, ok := m.selectedItem()
+	if !ok {
+		return nil
+	}
+	return itemReferenceLinks(item)
 }
 
 func (m model) View() string {
@@ -3765,6 +3843,45 @@ func renderInlineMarkdown(value string) string {
 		"~~", "",
 	)
 	return strings.TrimSpace(replacer.Replace(value))
+}
+
+func itemReferenceLinks(item Item) []string {
+	seen := map[string]struct{}{}
+	var links []string
+	add := func(url string) {
+		url = normalizeReferenceLink(url)
+		if url == "" {
+			return
+		}
+		if _, ok := seen[url]; ok {
+			return
+		}
+		seen[url] = struct{}{}
+		links = append(links, url)
+	}
+	for _, value := range []string{item.Text, item.Detail, item.Subtitle, item.Title} {
+		for _, match := range markdownLinkRE.FindAllStringSubmatch(value, -1) {
+			if len(match) > 2 {
+				add(match[2])
+			}
+		}
+		for _, match := range bareLinkRE.FindAllStringSubmatch(value, -1) {
+			if len(match) > 2 {
+				add(match[2])
+			}
+		}
+	}
+	return links
+}
+
+func normalizeReferenceLink(url string) string {
+	url = strings.TrimSpace(stripTerminalControls(url))
+	url = strings.Trim(url, `"'`)
+	url = strings.TrimRight(url, ".,;:!?)]}")
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		return ""
+	}
+	return url
 }
 
 func stripTerminalControls(value string) string {

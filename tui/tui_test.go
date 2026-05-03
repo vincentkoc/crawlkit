@@ -561,8 +561,8 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
 		Items: []Item{
-			Row{Kind: "message", Title: "alpha", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
-			Row{Kind: "message", Title: "bravo", URL: "https://example.com/bravo"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "alpha", Text: "see https://example.com/body-a", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "bravo", Text: "see [body](https://example.com/body-b)", URL: "https://example.com/bravo"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.width = 100
@@ -582,10 +582,10 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 		t.Fatalf("right click selected = %d, want row under pointer", m.selected)
 	}
 	view := m.View()
-	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") {
+	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") || !strings.Contains(view, "Links") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
 	}
-	for _, want := range []string{"Focus detail pane", "Sort focused pane"} {
+	for _, want := range []string{"Open first body link", "Focus detail pane", "Sort focused pane"} {
 		if !menuContainsLabel(m.menuItems, want) {
 			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
 		}
@@ -686,6 +686,47 @@ func TestActionMenuCopyAndOpenSelectedRow(t *testing.T) {
 	}
 	if copied[0] != "https://example.com/launch" || copied[1] != "Launch Plan" || !strings.Contains(copied[2], "Ship the TUI.") {
 		t.Fatalf("copied values = %#v", copied)
+	}
+}
+
+func TestActionMenuUsesBodyReferenceLinks(t *testing.T) {
+	previousCopy := copyText
+	previousOpen := openURL
+	var copied []string
+	var opened []string
+	copyText = func(value string) error {
+		copied = append(copied, value)
+		return nil
+	}
+	openURL = func(value string) error {
+		opened = append(opened, value)
+		return nil
+	}
+	t.Cleanup(func() {
+		copyText = previousCopy
+		openURL = previousOpen
+	})
+
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			{Kind: "page", Title: "Launch Plan", Text: "Spec [one](https://example.com/one). Related https://example.com/two.", Detail: "Duplicate https://example.com/one"},
+		},
+	})
+
+	if links := m.selectedReferenceLinks(); len(links) != 2 || links[0] != "https://example.com/one" || links[1] != "https://example.com/two" {
+		t.Fatalf("reference links = %#v", links)
+	}
+	m.openFirstReferenceLink()
+	m.copyFirstReferenceLink()
+	m.copyAllReferenceLinks()
+
+	if len(opened) != 1 || opened[0] != "https://example.com/one" {
+		t.Fatalf("opened links = %#v", opened)
+	}
+	if len(copied) != 2 || copied[0] != "https://example.com/one" || copied[1] != "https://example.com/one\nhttps://example.com/two" {
+		t.Fatalf("copied links = %#v", copied)
 	}
 }
 

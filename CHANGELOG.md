@@ -19,4 +19,5 @@
 - Add a shared `v` group-view toggle so chat archives can pivot left pane by channel, person, or thread, and document archives by parent, database, or workspace.
 - Add gitcrawl-style selected-row actions for opening URLs and copying URLs, titles, or rendered detail text from the TUI action menu.
 - Add gitcrawl-style `a` action-menu shortcut, context-specific action menu titles, and double-click-to-open selected archive rows.
+- Add gitcrawl-style body-link actions for opening or copying links found in selected chat messages and document previews.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
