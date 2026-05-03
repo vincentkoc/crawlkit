@@ -539,6 +539,7 @@ const (
 	actionCycleGroup
 	actionOpenURL
 	actionCopyURL
+	actionCopyMarkdownLink
 	actionCopyTitle
 	actionCopyDetail
 	actionOpenLinkMenu
@@ -1066,6 +1067,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		selectedItems = append([]menuItem{
 			{label: "Open selected URL", action: actionOpenURL},
 			{label: "Copy selected URL", action: actionCopyURL},
+			{label: "Copy markdown link", action: actionCopyMarkdownLink},
 		}, selectedItems...)
 	}
 	items := []menuItem{
@@ -1075,12 +1077,16 @@ func (m *model) openActionMenuFor(context paneFocus) {
 	if links := m.selectedReferenceLinks(); len(links) > 0 {
 		items = append(items,
 			menuSection("Links"),
+			menuItem{label: "Open first body link", action: actionOpenFirstLink},
+			menuItem{label: "Copy first body link", action: actionCopyFirstLink},
+		)
+	}
+	if links := m.selectedReferenceLinks(); len(links) > 1 {
+		items = append(items,
 			menuItem{label: "Open body link...", action: actionOpenLinkMenu},
 			menuItem{label: "Copy body link...", action: actionCopyLinkMenu},
+			menuItem{label: "Copy all body links", action: actionCopyAllLinks},
 		)
-		if len(links) > 1 {
-			items = append(items, menuItem{label: "Copy all body links", action: actionCopyAllLinks})
-		}
 	}
 	items = append(items, []menuItem{
 		menuSection("Pane"),
@@ -1270,6 +1276,9 @@ func (m *model) runMenuItem(item menuItem) tea.Cmd {
 	case actionCopyURL:
 		m.copySelectedURL()
 		m.closeMenu()
+	case actionCopyMarkdownLink:
+		m.copySelectedMarkdownLink()
+		m.closeMenu()
 	case actionCopyTitle:
 		m.copySelectedTitle()
 		m.closeMenu()
@@ -1413,6 +1422,31 @@ func (m *model) copySelectedURL() {
 		return
 	}
 	m.status = "Copied selected URL"
+}
+
+func (m *model) copySelectedMarkdownLink() {
+	item, ok := m.selectedItem()
+	if !ok || strings.TrimSpace(item.URL) == "" {
+		m.status = "No URL for selected row"
+		return
+	}
+	url := strings.TrimSpace(item.URL)
+	title := strings.TrimSpace(item.Title)
+	if title == "" {
+		title = url
+	}
+	if err := copyText("[" + escapeMarkdownLinkLabel(title) + "](" + url + ")"); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied markdown link"
+}
+
+func escapeMarkdownLinkLabel(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `[`, `\[`)
+	value = strings.ReplaceAll(value, `]`, `\]`)
+	return value
 }
 
 func (m *model) copySelectedTitle() {

@@ -835,7 +835,7 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") || !strings.Contains(view, "Links") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
 	}
-	for _, want := range []string{"Open body link...", "Copy body link...", "Focus detail pane", "Sort focused pane", "Jump to row..."} {
+	for _, want := range []string{"Copy markdown link", "Open first body link", "Copy first body link", "Focus detail pane", "Sort focused pane", "Jump to row..."} {
 		if !menuContainsLabel(m.menuItems, want) {
 			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
 		}
@@ -853,8 +853,10 @@ func TestActionMenuUsesGitcrawlStyleLinkPicker(t *testing.T) {
 	m.height = 16
 	m.openActionMenuFor(focusRows)
 
-	if !menuContainsLabel(m.menuItems, "Open body link...") {
-		t.Fatalf("action menu missing link picker: %#v", m.menuItems)
+	for _, want := range []string{"Open first body link", "Copy first body link", "Open body link...", "Copy body link...", "Copy all body links"} {
+		if !menuContainsLabel(m.menuItems, want) {
+			t.Fatalf("action menu missing %q: %#v", want, m.menuItems)
+		}
 	}
 	m.openReferenceLinkMenu("open")
 	if m.menuTitle != "Open Link" {
@@ -996,12 +998,13 @@ func TestActionMenuCopyAndOpenSelectedRow(t *testing.T) {
 		t.Fatalf("open action opened=%v status=%q", opened, m.status)
 	}
 	m.copySelectedURL()
+	m.copySelectedMarkdownLink()
 	m.copySelectedTitle()
 	m.copySelectedDetail()
-	if len(copied) != 3 {
+	if len(copied) != 4 {
 		t.Fatalf("copied = %#v", copied)
 	}
-	if copied[0] != "https://example.com/launch" || copied[1] != "Launch Plan" || !strings.Contains(copied[2], "Ship the TUI.") {
+	if copied[0] != "https://example.com/launch" || copied[1] != "[Launch Plan](https://example.com/launch)" || copied[2] != "Launch Plan" || !strings.Contains(copied[3], "Ship the TUI.") {
 		t.Fatalf("copied values = %#v", copied)
 	}
 }
