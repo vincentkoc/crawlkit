@@ -34,6 +34,7 @@ var (
 	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
 	bareLinkRE        = regexp.MustCompile(`(^|[\s(<])(https?://[^\s<>)]+)`)
 	markdownListRE    = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.+)$`)
+	emojiCodeRE       = regexp.MustCompile(`(^|\s):[A-Za-z0-9_+\-]+:`)
 )
 
 var (
@@ -4605,6 +4606,7 @@ func appendWrappedStyled(lines []string, prefix, value string, width int, styler
 
 func renderInlineMarkdown(value string) string {
 	value = markdownLinkRE.ReplaceAllString(value, "$1 <$2>")
+	value = emojiCodeRE.ReplaceAllString(value, "$1")
 	replacer := strings.NewReplacer(
 		"`", "",
 		"**", "",

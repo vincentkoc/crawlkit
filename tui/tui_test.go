@@ -203,7 +203,7 @@ func TestMachineIDsStayOutOfPrimaryPaneLabels(t *testing.T) {
 
 func TestRowsPaneUsesStableColumns(t *testing.T) {
 	line := rowListLine(Item{
-		Title:    "Can you *check* again? Hoping this update worked.",
+		Title:    ":books: Can you *check* again? Hoping this update worked.",
 		Subtitle: "general  vincent  2026-05-02T12:00:00Z",
 		Tags:     []string{"message", "discord"},
 	}, 100)
@@ -212,7 +212,7 @@ func TestRowsPaneUsesStableColumns(t *testing.T) {
 			t.Fatalf("row line missing %q: %q", want, line)
 		}
 	}
-	if strings.Contains(line, "*check*") {
+	if strings.Contains(line, "*check*") || strings.Contains(line, ":books:") {
 		t.Fatalf("row line should render markdown-ish titles: %q", line)
 	}
 	if strings.Contains(line, "vincent  2026") {
