@@ -1489,7 +1489,7 @@ func (m model) renderContextPane(rect rect) string {
 		}
 		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext, itemInactive(m.items[members[index]]))
 	})
-	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusContext, m.focus, m.memberPaneTitle()+"  "+group.Title), tableView)
+	content := lipgloss.JoinVertical(lipgloss.Left, paneTitle(focusContext, m.focus, m.memberPaneTitle()+"  "+m.memberPositionLabel()+"  "+group.Title), tableView)
 	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
 }
 
@@ -2474,6 +2474,14 @@ func (m model) groupPositionLabel() string {
 		return "0/0"
 	}
 	return fmt.Sprintf("%d/%d groups", m.currentGroupIndex()+1, len(m.groups))
+}
+
+func (m model) memberPositionLabel() string {
+	members := m.currentGroupMembers()
+	if len(members) == 0 {
+		return "0/0"
+	}
+	return fmt.Sprintf("%d/%d rows", m.currentMemberOffset()+1, len(members))
 }
 
 func (m model) groupPaneTitle() string {
