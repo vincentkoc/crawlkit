@@ -24,4 +24,5 @@
 - Match more of the `gitcrawl` interaction model in the shared TUI: action menus now keep the detail pane chrome, and `s`/`m` cycle group/member sorting while `S` opens the full sort menu.
 - Preserve useful `tui` table columns in 120-column tmux panes so group rows keep date/age and member rows keep time/age/who/title instead of collapsing to title-only lists.
 - Start the shared `tui` in full detail mode like `gitcrawl`, while keeping `d` as the compact/full detail toggle.
+- Trim redundant chat member columns so message panes prioritize time, age, author, and title instead of repeating the selected channel/kind on every row.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

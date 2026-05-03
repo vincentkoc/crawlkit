@@ -229,10 +229,13 @@ func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 	m.width = 300
 	m.height = 28
 	view := stripANSI(m.View())
-	for _, want := range []string{"kind", "msgs", "latest", "scope", "channel", "time", "where", "author", "title"} {
+	for _, want := range []string{"kind", "msgs", "latest", "scope", "channel", "time", "who", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("table view missing %q:\n%s", want, view)
 		}
+	}
+	if strings.Contains(view, " where ") || strings.Contains(view, " author ") {
+		t.Fatalf("chat message pane should not waste columns on redundant where/author labels:\n%s", view)
 	}
 	if strings.Contains(view, "> general") || strings.Contains(view, "> first update") {
 		t.Fatalf("pane tables should use row styling instead of prompt prefixes:\n%s", view)
@@ -258,7 +261,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "where", "author", "title"} {
+	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "who", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
@@ -1584,11 +1587,9 @@ func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
 	m.height = 24
 	layout := m.layout()
 	contextWidth := paneContentWidth(layout.context.w)
-	kindW := minInt(maxInt(5, contextWidth/10), 10)
 	whenW := minInt(maxInt(10, contextWidth/6), 16)
 	ageW := minInt(maxInt(4, contextWidth/16), 7)
-	whereW := minInt(maxInt(10, contextWidth/5), 22)
-	authorX := kindW + 1 + whenW + 1 + ageW + 1 + whereW + 1
+	authorX := whenW + 1 + ageW + 1
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.context.x + 2 + authorX,
 		Y:      layout.context.y + 2,

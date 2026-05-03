@@ -3167,13 +3167,11 @@ func (m model) memberColumns(width int) []tableColumn {
 		}
 	}
 	authorW := minInt(maxInt(8, width/7), 18)
-	titleW := maxInt(1, width-kindW-whenW-ageW-whereW-authorW-5)
+	titleW := maxInt(1, width-whenW-ageW-authorW-3)
 	return []tableColumn{
-		{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
 		{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
 		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-		{Key: "container", Title: activeLabel("where", active == sortContainer || active == sortScope), Width: whereW},
-		{Key: "author", Title: activeLabel("author", active == sortAuthor), Width: authorW},
+		{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
 		{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 	}
 }
