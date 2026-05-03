@@ -39,6 +39,7 @@ var (
 const (
 	wheelScrollDelay      = 16 * time.Millisecond
 	wheelMaxBufferedDelta = 6
+	doubleClickWindow     = 450 * time.Millisecond
 	rowsPaneAccent        = "#8fb8d8"
 	contextPaneAccent     = "#a8b8a0"
 	detailPaneAccent      = "#d3b35f"
@@ -443,6 +444,11 @@ type model struct {
 	menuOff        int
 	menuFloating   bool
 	menuRect       rect
+	lastClickFocus paneFocus
+	lastClickIndex int
+	lastClickX     int
+	lastClickY     int
+	lastClickAt    time.Time
 }
 
 type sortMode int
@@ -703,7 +709,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.startFilter()
 		case "s":
 			m.openSortMenuFor(m.focus)
-		case "m":
+		case "a", "m":
 			m.openActionMenu()
 		case "?":
 			m.openHelpMenu()
@@ -734,10 +740,17 @@ func (m *model) handleLeftClick(x, y int) {
 	m.closeMenu()
 	focus := m.paneAt(x, y)
 	m.focus = focus
+	now := time.Now()
 	if focus == focusRows {
-		m.selectGroupAt(layout.rows, x, y)
+		if index, ok := m.selectGroupAt(layout.rows, x, y); ok {
+			m.finishRowClick(focusRows, index, x, y, now)
+		}
 	} else if focus == focusContext {
-		m.selectMemberAt(layout.context, x, y)
+		if index, ok := m.selectMemberAt(layout.context, x, y); ok {
+			m.finishRowClick(focusContext, index, x, y, now)
+		}
+	} else {
+		m.clearLastClick()
 	}
 }
 
@@ -753,37 +766,41 @@ func (m *model) handleRightClick(x, y int) {
 	m.placeFloatingMenu(x, y)
 }
 
-func (m *model) selectGroupAt(rect rect, x, y int) {
+func (m *model) selectGroupAt(rect rect, x, y int) (int, bool) {
 	row := y - rect.y - 3
 	if row == -1 {
 		m.sortGroupsFromHeader(x-rect.x-2, paneContentWidth(rect.w))
-		return
+		m.clearLastClick()
+		return 0, false
 	}
 	if row < 0 || row >= rowsViewportHeight(rect.h) {
-		return
+		return 0, false
 	}
 	groupIndex := m.offset + row
 	if groupIndex < 0 || groupIndex >= len(m.groups) {
-		return
+		return 0, false
 	}
 	m.selectGroup(groupIndex)
+	return groupIndex, true
 }
 
-func (m *model) selectMemberAt(rect rect, x, y int) {
+func (m *model) selectMemberAt(rect rect, x, y int) (int, bool) {
 	row := y - rect.y - 3
 	if row == -1 {
 		m.sortMembersFromHeader(x-rect.x-2, paneContentWidth(rect.w))
-		return
+		m.clearLastClick()
+		return 0, false
 	}
 	members := m.currentGroupMembers()
 	memberOffset := m.contextOffset + row
 	if row < 0 || row >= rowsViewportHeight(rect.h) || memberOffset < 0 || memberOffset >= len(members) {
-		return
+		return 0, false
 	}
 	itemIndex := members[memberOffset]
 	m.selectItemIndex(itemIndex)
 	m.detailView.GotoTop()
 	m.ensureVisible()
+	return itemIndex, true
 }
 
 func (m *model) selectGroup(groupIndex int) {
@@ -794,6 +811,32 @@ func (m *model) selectGroup(groupIndex int) {
 	m.contextOffset = 0
 	m.detailView.GotoTop()
 	m.ensureVisible()
+}
+
+func (m *model) finishRowClick(focus paneFocus, index, x, y int, now time.Time) {
+	if m.isDoubleClick(focus, index, x, y, now) {
+		m.clearLastClick()
+		m.openSelectedURL()
+		return
+	}
+	m.lastClickFocus = focus
+	m.lastClickIndex = index
+	m.lastClickX = x
+	m.lastClickY = y
+	m.lastClickAt = now
+}
+
+func (m model) isDoubleClick(focus paneFocus, index, x, y int, now time.Time) bool {
+	return !m.lastClickAt.IsZero() &&
+		m.lastClickFocus == focus &&
+		m.lastClickIndex == index &&
+		m.lastClickX == x &&
+		m.lastClickY == y &&
+		now.Sub(m.lastClickAt) <= doubleClickWindow
+}
+
+func (m *model) clearLastClick() {
+	m.lastClickAt = time.Time{}
 }
 
 func (m *model) handleMenuMouse(msg tea.MouseMsg) {
@@ -941,7 +984,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		menuItem{label: "Close menu", action: actionClose},
 	)
 	m.menuContext = context
-	m.openMenu("Actions", items)
+	m.openMenu(actionMenuTitle(context), items)
 }
 
 func (m *model) openSortMenuFor(context paneFocus) {
@@ -970,7 +1013,7 @@ func (m *model) openHelpMenu() {
 		menuSection("Mouse"),
 		{label: "Tab/arrow: select pane", action: actionClose},
 		{label: "Mouse click: select pane/row", action: actionClose},
-		{label: "Right click or m: floating actions", action: actionClose},
+		{label: "Right click or a/m: floating actions", action: actionClose},
 		{label: "Click row header: sort", action: actionClose},
 		menuSection("Keyboard"),
 		{label: "o: open selected URL", action: actionClose},
@@ -1404,6 +1447,19 @@ func actionMenuSubtitle(context paneFocus) string {
 	}
 }
 
+func actionMenuTitle(context paneFocus) string {
+	switch context {
+	case focusRows:
+		return "Row Actions"
+	case focusContext:
+		return "Context Actions"
+	case focusDetail:
+		return "Detail Actions"
+	default:
+		return "Actions"
+	}
+}
+
 func (m model) renderFloatingMenu(view string) string {
 	if m.menuRect.w <= 0 || m.menuRect.h <= 0 {
 		return view
@@ -1541,15 +1597,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  a/m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  o open  c copy  s sort  v group  d detail  / filter  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  v group  d detail  / filter  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu o open c copy s sort v group d detail / filter ? help q quit"
+	return "Tab panes click menu a actions o open c copy s sort v group d detail / filter ? help q quit"
 }
 
 func (m model) footerLocation() string {

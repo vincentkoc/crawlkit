@@ -575,7 +575,7 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 		Action: tea.MouseActionPress,
 	})
 	m = updated.(model)
-	if !m.menuOpen || m.menuTitle != "Actions" {
+	if !m.menuOpen || m.menuTitle != "Row Actions" {
 		t.Fatalf("menu open=%v title=%q", m.menuOpen, m.menuTitle)
 	}
 	if m.selected != 1 {
@@ -589,6 +589,63 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 		if !menuContainsLabel(m.menuItems, want) {
 			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
 		}
+	}
+}
+
+func TestKeyboardActionShortcutAliasOpensMenu(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "alpha", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
+		},
+	})
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+
+	if !m.menuOpen || m.menuTitle != "Row Actions" {
+		t.Fatalf("action shortcut menu open=%v title=%q", m.menuOpen, m.menuTitle)
+	}
+}
+
+func TestMouseDoubleClickOpensSelectedRowURL(t *testing.T) {
+	previousOpen := openURL
+	var opened []string
+	openURL = func(value string) error {
+		opened = append(opened, value)
+		return nil
+	}
+	t.Cleanup(func() {
+		openURL = previousOpen
+	})
+
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "alpha", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "bravo", URL: "https://example.com/bravo"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 100
+	m.height = 16
+	layout := m.layout()
+	msg := tea.MouseMsg{
+		X:      layout.rows.x + 2,
+		Y:      layout.rows.y + 4,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	}
+
+	updated, _ := m.Update(msg)
+	m = updated.(model)
+	if len(opened) != 0 {
+		t.Fatalf("single click opened URL: %#v", opened)
+	}
+	updated, _ = m.Update(msg)
+	m = updated.(model)
+
+	if len(opened) != 1 || opened[0] != "https://example.com/bravo" || m.status != "Opened selected URL" {
+		t.Fatalf("double click opened=%#v status=%q", opened, m.status)
 	}
 }
 
@@ -734,7 +791,7 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	view := stripANSI(m.View())
-	for _, want := range []string{"Help", "Right click or m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Help", "Right click or a/m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}
