@@ -3159,7 +3159,7 @@ func (m model) groupColumns(width int) []tableColumn {
 		{Key: "time", Title: activeTimeLabel("latest", active), Width: timeW},
 		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
 	}
-	if m.hasVisibleGroupScope() {
+	if m.shouldShowGroupScopeColumn() {
 		scopeW := minInt(maxInt(8, width/7), 16)
 		titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
 		columns = append(columns, tableColumn{Key: "scope", Title: activeLabel("scope", active == sortScope), Width: scopeW})
@@ -3171,7 +3171,10 @@ func (m model) groupColumns(width int) []tableColumn {
 	return columns
 }
 
-func (m model) hasVisibleGroupScope() bool {
+func (m model) shouldShowGroupScopeColumn() bool {
+	if m.layoutPreset == LayoutChat {
+		return false
+	}
 	for _, group := range m.groups {
 		if strings.TrimSpace(group.Scope) != "" {
 			return true

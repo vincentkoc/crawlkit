@@ -229,7 +229,7 @@ func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 	m.width = 300
 	m.height = 28
 	view := stripANSI(m.View())
-	for _, want := range []string{"kind", "msgs", "latest", "scope", "channel", "time", "who", "title"} {
+	for _, want := range []string{"kind", "msgs", "latest", "channel", "time", "who", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("table view missing %q:\n%s", want, view)
 		}
@@ -262,7 +262,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels", "Messages", "3/3 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "who", "title"} {
+	for _, want := range []string{"Channels", "Messages", "3/3 rows", "Conversation", "kind", "msgs", "latest", "age", "channel", "time", "who", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
