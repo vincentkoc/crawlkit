@@ -3075,7 +3075,7 @@ func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow 
 			continue
 		}
 		item := m.items[itemIndex]
-		title := item.Title
+		title := displayRowTitle(item.Title)
 		if item.Depth > 0 {
 			title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 		}
@@ -3897,7 +3897,7 @@ func threadKey(item Item) string {
 
 func rowListLine(item Item, width int) string {
 	width = maxInt(width, 1)
-	title := item.Title
+	title := displayRowTitle(item.Title)
 	if item.Depth > 0 {
 		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 	}
@@ -3924,6 +3924,13 @@ func rowListLine(item Item, width int) string {
 		padCells(truncateCells(where, whereW), whereW) + " " +
 		padCells(truncateCells(author, authorW), authorW) + " " +
 		truncateCells(title, titleW)
+}
+
+func displayRowTitle(title string) string {
+	if rendered := renderInlineMarkdown(title); rendered != "" {
+		return rendered
+	}
+	return strings.TrimSpace(title)
 }
 
 func compactRowListLine(item Item, title string, width int) string {
