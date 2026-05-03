@@ -3416,15 +3416,16 @@ func (m model) chatDetailLines(item Item, width int) []string {
 	if meta := chatMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
+	if message := chatBodyText(item); message != "" {
+		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
+		lines = appendLimitedDetailLines(lines, chatBubbleLines(item, message, true, width), detailBodyLimit(m.compactDetail))
+	}
 	if title, thread := m.threadSection(item, width); len(thread) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold(title))
 		lines = appendLimitedDetailLines(lines, thread, detailBodyLimit(m.compactDetail))
 	} else if title, conversation := m.conversationSection(item, width); len(conversation) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold(title))
 		lines = appendLimitedDetailLines(lines, conversation, detailBodyLimit(m.compactDetail))
-	} else if message := chatBodyText(item); message != "" {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
-		lines = appendLimitedDetailLines(lines, chatBubbleLines(item, message, true, width), detailBodyLimit(m.compactDetail))
 	}
 	if !m.compactDetail {
 		if properties := chatPropertyLines(item); len(properties) > 0 {

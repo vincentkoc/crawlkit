@@ -467,6 +467,9 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 			t.Fatalf("chat detail missing %q:\n%s", want, joined)
 		}
 	}
+	if strings.Index(joined, "Message") > strings.Index(joined, "Thread 1-2/2") {
+		t.Fatalf("selected message should appear before thread context:\n%s", joined)
+	}
 	if strings.Index(joined, "Thread") > strings.Index(joined, "Properties") {
 		t.Fatalf("chat detail should put readable content before properties:\n%s", joined)
 	}
@@ -514,6 +517,9 @@ func TestChatDetailFallsBackToConversationWindow(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("conversation detail missing %q:\n%s", want, joined)
 		}
+	}
+	if strings.Index(joined, "Message") > strings.Index(joined, "Conversation 1-3/3") {
+		t.Fatalf("selected message should appear before conversation context:\n%s", joined)
 	}
 }
 
