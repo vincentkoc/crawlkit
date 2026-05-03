@@ -486,6 +486,25 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 	}
 }
 
+func TestChatDetailFallsBackToConversationWindow(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "amy", Text: "before", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", Container: "general", Author: "bob", Text: "selected", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m3", Container: "general", Author: "cam", Text: "after", CreatedAt: "2026-05-01T10:02:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.selectItemIndex(1)
+	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[1], 60), "\n"))
+	for _, want := range []string{"Conversation", "amy", "before", "> bob", "selected", "cam", "after"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("conversation detail missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 func TestChatDetailDoesNotTreatMetadataAsMessageBody(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
@@ -546,7 +565,7 @@ func TestChatDetailKeepsRawIDsBelowReadableSummary(t *testing.T) {
 	})
 	m.compactDetail = false
 	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 64), "\n"))
-	firstSection := strings.Split(joined, "Thread")[0]
+	firstSection := strings.Split(joined, "Properties")[0]
 	if strings.Contains(firstSection, "C0AQ7TZR9KP") || strings.Contains(firstSection, "1776788221") {
 		t.Fatalf("chat summary leaked raw ids before readable content:\n%s", joined)
 	}

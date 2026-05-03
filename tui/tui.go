@@ -3271,6 +3271,9 @@ func (m model) chatDetailLines(item Item, width int) []string {
 	if thread := m.threadLines(item, width); len(thread) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Thread"))
 		lines = appendLimitedDetailLines(lines, thread, detailBodyLimit(m.compactDetail))
+	} else if conversation := m.conversationLines(item, width); len(conversation) > 0 {
+		lines = append(lines, "", dim(tuiRule(width)), bold("Conversation"))
+		lines = appendLimitedDetailLines(lines, conversation, detailBodyLimit(m.compactDetail))
 	} else if message := chatBodyText(item); message != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
 		lines = appendLimitedDetailLines(lines, chatBubbleLines(item, message, true, width), detailBodyLimit(m.compactDetail))
@@ -3508,6 +3511,7 @@ func (m model) threadLines(selected Item, width int) []string {
 		return nil
 	}
 	var lines []string
+	count := 0
 	for _, itemIndex := range m.currentGroupMembers() {
 		if itemIndex < 0 || itemIndex >= len(m.items) {
 			continue
@@ -3516,8 +3520,41 @@ func (m model) threadLines(selected Item, width int) []string {
 		if threadKey(item) != key {
 			continue
 		}
+		count++
 		text := chatBodyText(item)
 		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID, width)...)
+	}
+	if count <= 1 {
+		return nil
+	}
+	return lines
+}
+
+func (m model) conversationLines(selected Item, width int) []string {
+	members := m.currentGroupMembers()
+	if len(members) <= 1 {
+		return nil
+	}
+	selectedIndex := -1
+	for index, itemIndex := range members {
+		if itemIndex >= 0 && itemIndex < len(m.items) && m.items[itemIndex].ID == selected.ID {
+			selectedIndex = index
+			break
+		}
+	}
+	if selectedIndex < 0 {
+		return nil
+	}
+	radius := 8
+	start := maxInt(0, selectedIndex-radius)
+	end := minInt(len(members), selectedIndex+radius+1)
+	var lines []string
+	for _, itemIndex := range members[start:end] {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		item := m.items[itemIndex]
+		lines = append(lines, chatBubbleLines(item, chatBodyText(item), item.ID == selected.ID, width)...)
 	}
 	if len(lines) <= 1 {
 		return nil
