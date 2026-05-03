@@ -2440,12 +2440,12 @@ func (m model) layout() archiveLayout {
 	if height <= 0 {
 		height = 24
 	}
-	bodyH := maxInt(1, height-3)
-	if width >= 120 {
+	bodyH := maxInt(8, height-3)
+	if width >= 140 {
 		if m.layoutMode == layoutModeRightStack {
 			rowsW := maxInt(56, width*44/100)
 			rightW := width - rowsW
-			contextH := clampInt(maxInt(3, bodyH*42/100), 1, maxInt(1, bodyH-1))
+			contextH := clampInt(maxInt(8, bodyH*42/100), 1, maxInt(1, bodyH-1))
 			return archiveLayout{
 				rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
 				context: rect{x: rowsW, y: 1, w: rightW, h: contextH},
@@ -2453,26 +2453,18 @@ func (m model) layout() archiveLayout {
 				mode:    string(layoutModeRightStack),
 			}
 		}
-		rowsW := maxInt(42, width*34/100)
-		contextW := maxInt(38, width*30/100)
-		detailW := width - rowsW - contextW
-		if detailW < 40 {
-			deficit := 40 - detailW
-			shrinkRows := minInt(deficit, maxInt(0, rowsW-42))
-			rowsW -= shrinkRows
-			deficit -= shrinkRows
-			shrinkContext := minInt(deficit, maxInt(0, contextW-38))
-			contextW -= shrinkContext
-		}
+		rowsW := maxInt(48, width*34/100)
+		contextW := maxInt(40, width*30/100)
+		detailW := maxInt(42, width-rowsW-contextW)
 		return archiveLayout{
 			rows:    rect{x: 0, y: 1, w: rowsW, h: bodyH},
 			context: rect{x: rowsW, y: 1, w: contextW, h: bodyH},
-			detail:  rect{x: rowsW + contextW, y: 1, w: width - rowsW - contextW, h: bodyH},
+			detail:  rect{x: rowsW + contextW, y: 1, w: detailW, h: bodyH},
 			mode:    string(layoutModeColumns),
 		}
 	}
 	if width >= 100 {
-		topH := clampInt(maxInt(4, bodyH/2), 1, maxInt(1, bodyH-1))
+		topH := clampInt(maxInt(8, bodyH/2), 1, maxInt(1, bodyH-1))
 		rowsW := width / 2
 		return archiveLayout{
 			rows:    rect{x: 0, y: 1, w: rowsW, h: topH},
@@ -2482,9 +2474,9 @@ func (m model) layout() archiveLayout {
 			mode:    "split",
 		}
 	}
-	rowsH := clampInt(maxInt(3, bodyH*36/100), 1, maxInt(1, bodyH-2))
-	contextH := clampInt(maxInt(2, bodyH*28/100), 1, maxInt(1, bodyH-rowsH-1))
-	detailH := maxInt(1, bodyH-rowsH-contextH)
+	rowsH := clampInt(maxInt(7, bodyH*36/100), 1, maxInt(1, bodyH-2))
+	contextH := clampInt(maxInt(6, bodyH*28/100), 1, maxInt(1, bodyH-rowsH-1))
+	detailH := maxInt(6, bodyH-rowsH-contextH)
 	return archiveLayout{
 		rows:    rect{x: 0, y: 1, w: width, h: rowsH},
 		context: rect{x: 0, y: 1 + rowsH, w: width, h: contextH},

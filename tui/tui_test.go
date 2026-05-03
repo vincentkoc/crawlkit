@@ -679,7 +679,7 @@ func TestFocusedDetailPaneScrollsIndependently(t *testing.T) {
 		}},
 	})
 	m.width = 80
-	m.height = 24
+	m.height = 30
 	m.focus = focusDetail
 	m.scrollFocused(1)
 	if m.selected != 0 {
@@ -1428,7 +1428,7 @@ func TestLayoutToggleUsesRightStackMode(t *testing.T) {
 	}
 }
 
-func TestWideTmuxPanesPreferThreeColumns(t *testing.T) {
+func TestMediumTmuxPanesUseGitcrawlSplitLayout(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
 		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
@@ -1436,17 +1436,17 @@ func TestWideTmuxPanesPreferThreeColumns(t *testing.T) {
 	m.width = 122
 	m.height = 34
 	layout := m.layout()
-	if layout.mode != string(layoutModeColumns) || layout.stacked {
-		t.Fatalf("layout = %#v, want three columns", layout)
+	if layout.mode != "split" || !layout.stacked {
+		t.Fatalf("layout = %#v, want gitcrawl-style split", layout)
 	}
-	if layout.rows.h != layout.context.h || layout.context.h != layout.detail.h {
-		t.Fatalf("panes should share height in column mode: %#v", layout)
+	if layout.rows.y != layout.context.y || layout.detail.y <= layout.rows.y {
+		t.Fatalf("split panes should put rows/context above detail: %#v", layout)
 	}
-	if paneContentWidth(layout.context.w) < 34 {
-		t.Fatalf("context pane too narrow for useful columns: %#v", layout)
+	if layout.rows.w+layout.context.w != 122 {
+		t.Fatalf("split top panes should fill terminal width: %#v", layout)
 	}
-	if paneContentWidth(layout.rows.w) < 36 {
-		t.Fatalf("rows pane too narrow for date/age columns: %#v", layout)
+	if paneContentWidth(layout.context.w) < 52 || paneContentWidth(layout.rows.w) < 52 {
+		t.Fatalf("split panes too narrow for useful columns: %#v", layout)
 	}
 }
 
