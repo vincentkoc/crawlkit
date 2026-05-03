@@ -275,6 +275,28 @@ func TestPaneTitlesStaySingleLineAtNarrowWidths(t *testing.T) {
 	}
 }
 
+func TestViewRespectsShortTerminalHeight(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", Container: "general", Author: "alice", Title: "one", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Container: "general", Author: "bob", Title: "two", CreatedAt: "2026-05-02T12:01:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 180
+	m.height = 18
+
+	view := stripANSI(m.View())
+	lines := strings.Split(view, "\n")
+	if len(lines) != 18 {
+		t.Fatalf("view height = %d, want 18:\n%s", len(lines), view)
+	}
+	if !strings.Contains(lines[0], "slacrawl archive") {
+		t.Fatalf("short terminal should keep header visible:\n%s", view)
+	}
+}
+
 func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	mediumGroupHeader := groupListHeader(46, sortDefault)

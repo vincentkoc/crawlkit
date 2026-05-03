@@ -1500,7 +1500,10 @@ func formatLinkChoiceLabel(url string, index int) string {
 
 func (m model) View() string {
 	width := maxInt(m.width, 40)
-	height := maxInt(m.height, 24)
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
 	layout := m.layout()
 	header := m.renderHeader(width)
 	rows := m.renderRowsPane(layout.rows)
