@@ -14,6 +14,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 	"github.com/mattn/go-isatty"
 )
 
@@ -243,8 +244,14 @@ func Run(ctx context.Context, opts Options) error {
 	if !ok || !isatty.IsTerminal(output.Fd()) {
 		return ErrNotTerminal
 	}
+	model := newModel(opts)
+	if width, height, err := term.GetSize(output.Fd()); err == nil && width > 0 && height > 0 {
+		model.width = width
+		model.height = height
+		model.ensureVisible()
+	}
 	program := tea.NewProgram(
-		newModel(opts),
+		model,
 		tea.WithContext(ctx),
 		tea.WithInput(input),
 		tea.WithOutput(output),
@@ -577,7 +584,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.filterMode {
 			switch typed.String() {
-			case "ctrl+c":
+			case "ctrl+c", "ctrl+d", "q":
 				return m, tea.Quit
 			case "enter", "esc":
 				m.filterMode = false
@@ -595,7 +602,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch typed.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c", "ctrl+d", "q":
 			return m, tea.Quit
 		case "tab", "right":
 			m.focus = nextFocus(m.focus, 1)
@@ -800,7 +807,9 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
 	case "ctrl+c":
 		return tea.Quit
-	case "esc", "q":
+	case "q", "ctrl+d":
+		return tea.Quit
+	case "esc":
 		m.closeMenu()
 	case "up", "k":
 		m.menuIndex = m.nextSelectableMenuIndex(-1)
@@ -2361,6 +2370,9 @@ func rowListLine(item Item, width int) string {
 	if item.Depth > 0 {
 		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 	}
+	if width >= 34 && width < 68 {
+		return compactRowListLine(item, title, width)
+	}
 	if width < 68 {
 		return truncateCells(title, width)
 	}
@@ -2383,8 +2395,22 @@ func rowListLine(item Item, width int) string {
 		truncateCells(title, titleW)
 }
 
+func compactRowListLine(item Item, title string, width int) string {
+	whenW := 5
+	ageW := 4
+	authorW := minInt(maxInt(5, width/6), 9)
+	titleW := maxInt(1, width-whenW-ageW-authorW-3)
+	return padCells(truncateCells(compactDate(item), whenW), whenW) + " " +
+		padCells(truncateCells(rowAge(item), ageW), ageW) + " " +
+		padCells(truncateCells(itemAuthor(item), authorW), authorW) + " " +
+		truncateCells(title, titleW)
+}
+
 func groupListLine(group itemGroup, width int) string {
 	width = maxInt(width, 1)
+	if width >= 32 && width < 68 {
+		return compactGroupListLine(group, width)
+	}
 	if width < 68 {
 		return truncateCells(group.Title, width)
 	}
@@ -2402,8 +2428,28 @@ func groupListLine(group itemGroup, width int) string {
 		truncateCells(group.Title, titleW)
 }
 
+func compactGroupListLine(group itemGroup, width int) string {
+	countW := 3
+	ageW := 4
+	if width >= 44 {
+		kindW := 8
+		titleW := maxInt(1, width-kindW-countW-ageW-3)
+		return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
+			padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+			padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
+			truncateCells(group.Title, titleW)
+	}
+	titleW := maxInt(1, width-countW-ageW-2)
+	return padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+		padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
+		truncateCells(group.Title, titleW)
+}
+
 func groupListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
+	if width >= 32 && width < 68 {
+		return tagStyle(width).Bold(true).Render(compactGroupListHeader(width, active))
+	}
 	if width < 68 {
 		return tagStyle(width).Render(padCells("GROUP", width))
 	}
@@ -2438,8 +2484,41 @@ func groupListHeader(width int, active sortMode) string {
 	return tagStyle(width).Bold(true).Render(line)
 }
 
+func compactGroupListHeader(width int, active sortMode) string {
+	count := "N"
+	age := "AGE"
+	title := "GROUP"
+	if active == sortNewest || active == sortOldest {
+		age = "AGE v"
+	}
+	if active == sortTitle || active == sortContainer || active == sortAuthor {
+		title = "GROUP v"
+	}
+	countW := 3
+	ageW := 4
+	if width >= 44 {
+		kindW := 8
+		kind := "TYPE"
+		if active == sortKind {
+			kind = "TYPE v"
+		}
+		titleW := maxInt(1, width-kindW-countW-ageW-3)
+		return padCells(truncateCells(kind, kindW), kindW) + " " +
+			padCells(truncateCells(count, countW), countW) + " " +
+			padCells(truncateCells(age, ageW), ageW) + " " +
+			truncateCells(title, titleW)
+	}
+	titleW := maxInt(1, width-countW-ageW-2)
+	return padCells(truncateCells(count, countW), countW) + " " +
+		padCells(truncateCells(age, ageW), ageW) + " " +
+		truncateCells(title, titleW)
+}
+
 func rowListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
+	if width >= 34 && width < 68 {
+		return tagStyle(width).Bold(true).Render(compactRowListHeader(width, active))
+	}
 	if width < 68 {
 		return tagStyle(width).Render(padCells("TITLE", width))
 	}
@@ -2478,8 +2557,35 @@ func rowListHeader(width int, active sortMode) string {
 	return tagStyle(width).Bold(true).Render(line)
 }
 
+func compactRowListHeader(width int, active sortMode) string {
+	timeLabel := "DATE"
+	age := "AGE"
+	author := "WHO"
+	title := "TITLE"
+	switch active {
+	case sortNewest, sortOldest:
+		age = "AGE v"
+	case sortAuthor:
+		author = "WHO v"
+	case sortTitle:
+		title = "TITLE v"
+	}
+	whenW := 5
+	ageW := 4
+	authorW := minInt(maxInt(5, width/6), 9)
+	titleW := maxInt(1, width-whenW-ageW-authorW-3)
+	return padCells(truncateCells(timeLabel, whenW), whenW) + " " +
+		padCells(truncateCells(age, ageW), ageW) + " " +
+		padCells(truncateCells(author, authorW), authorW) + " " +
+		truncateCells(title, titleW)
+}
+
 func (m *model) sortRowsFromHeader(x int) {
 	width := paneContentWidth(m.layout().rows.w)
+	if width >= 34 && width < 68 {
+		m.sortCompactHeader(x, width)
+		return
+	}
 	if width < 68 {
 		m.setSortMode(sortTitle)
 		return
@@ -2507,6 +2613,24 @@ func (m *model) sortRowsFromHeader(x int) {
 	case x < kindW+1+whenW+1+ageW+1+whereW:
 		m.setSortMode(sortContainer)
 	case x < kindW+1+whenW+1+ageW+1+whereW+1+authorW:
+		m.setSortMode(sortAuthor)
+	default:
+		m.setSortMode(sortTitle)
+	}
+}
+
+func (m *model) sortCompactHeader(x int, width int) {
+	whenW := 5
+	ageW := 4
+	authorW := minInt(maxInt(5, width/6), 9)
+	switch {
+	case x < whenW+1+ageW:
+		if m.sortMode == sortNewest {
+			m.setSortMode(sortOldest)
+		} else {
+			m.setSortMode(sortNewest)
+		}
+	case x < whenW+1+ageW+1+authorW:
 		m.setSortMode(sortAuthor)
 	default:
 		m.setSortMode(sortTitle)
@@ -2550,6 +2674,13 @@ func rowWhen(item Item) string {
 func rowAge(item Item) string {
 	if t, ok := itemSortTime(item); ok {
 		return compactAge(time.Since(t))
+	}
+	return ""
+}
+
+func compactDate(item Item) string {
+	if t, ok := itemSortTime(item); ok {
+		return t.UTC().Format("01-02")
 	}
 	return ""
 }

@@ -136,6 +136,63 @@ func TestRowsPaneUsesStableColumns(t *testing.T) {
 	}
 }
 
+func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
+	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
+	groupHeader := groupListHeader(40, sortDefault)
+	groupLine := groupListLine(group, 40)
+	for _, want := range []string{"N", "AGE", "GROUP", "18", "github-secure"} {
+		if !strings.Contains(groupHeader+groupLine, want) {
+			t.Fatalf("compact group columns missing %q:\n%s\n%s", want, groupHeader, groupLine)
+		}
+	}
+
+	rowHeader := rowListHeader(42, sortDefault)
+	rowLine := rowListLine(Item{
+		Title:     "Im working on adding",
+		Author:    "Vincent Koc",
+		CreatedAt: "2026-05-02T12:00:00Z",
+	}, 42)
+	for _, want := range []string{"DATE", "AGE", "WHO", "TITLE", "05-02", "Vinc", "Im working"} {
+		if !strings.Contains(rowHeader+rowLine, want) {
+			t.Fatalf("compact row columns missing %q:\n%s\n%s", want, rowHeader, rowLine)
+		}
+	}
+}
+
+func TestQQuitsFromMenuAndFilterModes(t *testing.T) {
+	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
+	m = updated.(model)
+	if !m.menuOpen {
+		t.Fatal("menu did not open")
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("q in menu should quit")
+	}
+
+	m = newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}})
+	m = updated.(model)
+	if !m.filterMode {
+		t.Fatal("filter did not start")
+	}
+	_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("q in filter should quit")
+	}
+}
+
+func TestInitialTerminalSizeCanUseTallPane(t *testing.T) {
+	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	m.width = 84
+	m.height = 60
+	view := m.View()
+	if got := strings.Count(view, "\n") + 1; got != 60 {
+		t.Fatalf("view height = %d, want 60", got)
+	}
+}
+
 func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
