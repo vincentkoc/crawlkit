@@ -515,6 +515,7 @@ type sortMode int
 
 const (
 	sortDefault sortMode = iota
+	sortCount
 	sortNewest
 	sortOldest
 	sortTitle
@@ -555,6 +556,7 @@ const (
 	actionBackToActions
 	actionQuit
 	actionSortDefault
+	actionSortCount
 	actionSortNewest
 	actionSortOldest
 	actionSortTitle
@@ -1144,7 +1146,7 @@ func (m *model) openSortMenuFor(context paneFocus) {
 		title = "Sort Members"
 	}
 	m.menuContext = context
-	m.openMenu(title, []menuItem{
+	items := []menuItem{
 		menuSection("Order"),
 		{label: markActiveSort("Default", active == sortDefault), action: actionSortDefault},
 		{label: markActiveSort("Newest", active == sortNewest), action: actionSortNewest},
@@ -1154,7 +1156,11 @@ func (m *model) openSortMenuFor(context paneFocus) {
 		{label: markActiveSort("Scope", active == sortScope), action: actionSortScope},
 		{label: markActiveSort("Container", active == sortContainer), action: actionSortContainer},
 		{label: markActiveSort("Author", active == sortAuthor), action: actionSortAuthor},
-	})
+	}
+	if context != focusContext {
+		items = append(items[:2], append([]menuItem{{label: markActiveSort("Count", active == sortCount), action: actionSortCount}}, items[2:]...)...)
+	}
+	m.openMenu(title, items)
 }
 
 func (m *model) openHelpMenu() {
@@ -1364,6 +1370,8 @@ func (m *model) runMenuItem(item menuItem) tea.Cmd {
 		m.closeMenu()
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
+	case actionSortCount:
+		m.setPaneSortMode(sortCount)
 	case actionSortNewest:
 		m.setPaneSortMode(sortNewest)
 	case actionSortOldest:
@@ -2397,6 +2405,11 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 
 func compareGroups(left, right itemGroup, mode sortMode) (bool, bool) {
 	switch mode {
+	case sortCount:
+		if left.Count != right.Count {
+			return left.Count > right.Count, true
+		}
+		return compareGroupTime(left, right, true)
 	case sortNewest:
 		return compareGroupTime(left, right, true)
 	case sortOldest:
@@ -2628,6 +2641,8 @@ func (m *model) selectItemIndex(itemIndex int) {
 
 func (s sortMode) Label() string {
 	switch s {
+	case sortCount:
+		return "count"
 	case sortNewest:
 		return "newest"
 	case sortOldest:
@@ -3089,11 +3104,14 @@ func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow 
 func (m model) groupColumns(width int) []tableColumn {
 	width = maxInt(24, width)
 	active := m.sortMode
-	countLabel := m.groupCountLabel(width)
+	countLabel := activeLabel(m.groupCountLabel(width), active == sortCount)
 	titleLabel := m.groupTitleLabel()
 	if width < 44 {
 		if width >= 36 {
 			countW := 3
+			if active == sortCount {
+				countW = 4
+			}
 			timeW := 5
 			ageW := 4
 			titleW := maxInt(1, width-countW-timeW-ageW-3)
@@ -3105,6 +3123,9 @@ func (m model) groupColumns(width int) []tableColumn {
 			}
 		}
 		countW := 3
+		if active == sortCount {
+			countW = 4
+		}
 		ageW := 4
 		titleW := maxInt(1, width-countW-ageW-2)
 		return []tableColumn{
@@ -3115,6 +3136,9 @@ func (m model) groupColumns(width int) []tableColumn {
 	}
 	if width < 68 {
 		countW := 3
+		if active == sortCount {
+			countW = 4
+		}
 		timeW := 5
 		ageW := 4
 		titleW := maxInt(1, width-countW-timeW-ageW-3)
@@ -4131,7 +4155,7 @@ func (m *model) sortGroupsFromHeader(x, width int) {
 	case "kind":
 		m.setSortMode(sortKind)
 	case "count":
-		return
+		m.setSortMode(sortCount)
 	case "time", "age":
 		m.toggleTimeSort()
 	case "scope":

@@ -1140,7 +1140,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 	if !m.menuOpen || m.menuTitle != "Sort Groups" {
 		t.Fatalf("sort menu open=%v title=%q", m.menuOpen, m.menuTitle)
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'4'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}})
 	m = updated.(model)
 	if m.sortMode != sortTitle {
 		t.Fatalf("sort mode = %v, want title", m.sortMode)
@@ -1612,6 +1612,40 @@ func TestClickingRowsHeaderSorts(t *testing.T) {
 	item, ok := m.selectedItem()
 	if !ok || item.Title != "Alpha" {
 		t.Fatalf("first sorted item = %#v ok=%v", item, ok)
+	}
+}
+
+func TestClickingRowsCountHeaderSortsLikeGitcrawl(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "old-a", Container: "general", Author: "Amy", Title: "old a", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "old-b", Container: "general", Author: "Bob", Title: "old b", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "new", Container: "random", Author: "Cam", Title: "new", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 160
+	m.height = 24
+	layout := m.layout()
+	if group, ok := m.currentGroup(); !ok || group.Title != "random" {
+		t.Fatalf("initial newest group = %#v ok=%v", group, ok)
+	}
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.rows.x + 2,
+		Y:      layout.rows.y + 2,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if m.sortMode != sortCount {
+		t.Fatalf("sort mode = %v, want count", m.sortMode)
+	}
+	if len(m.groups) == 0 || m.groups[0].Title != "general" || m.groups[0].Count != 2 {
+		t.Fatalf("count-sorted groups = %#v", m.groups)
+	}
+	if !strings.Contains(stripANSI(m.View()), "msg*") {
+		t.Fatalf("count sort header missing active count marker:\n%s", stripANSI(m.View()))
 	}
 }
 
