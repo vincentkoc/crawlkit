@@ -1816,7 +1816,7 @@ func TestDocumentDetailSeparatesProviderAndSource(t *testing.T) {
 	if strings.Contains(joined, "source: notion") {
 		t.Fatalf("document detail should not duplicate provider as source:\n%s", joined)
 	}
-	if strings.Index(joined, "alpha=first") > strings.Index(joined, "zeta=last") {
+	if strings.Index(joined, "alpha: first") > strings.Index(joined, "zeta: last") {
 		t.Fatalf("field tail should be stable and sorted:\n%s", joined)
 	}
 }
