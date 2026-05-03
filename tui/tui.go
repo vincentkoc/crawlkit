@@ -407,6 +407,9 @@ func compactTitle(value string) string {
 	if value == "" {
 		return ""
 	}
+	if looksMachineID(value) {
+		return compactMachineID(value)
+	}
 	for _, sep := range []string{". ", "\n"} {
 		if idx := strings.Index(value, sep); idx > 18 {
 			value = strings.TrimSpace(value[:idx+1])
@@ -1979,37 +1982,37 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 	case LayoutChat:
 		if m.groupMode == groupByAuthor {
 			if author := strings.TrimSpace(itemAuthor(item)); author != "" {
-				return "author:" + author, author, "person", strings.TrimSpace(item.Scope)
+				return "author:" + author, displayLabel(author), "person", strings.TrimSpace(item.Scope)
 			}
 		}
 		if m.groupMode == groupByThread {
 			if thread := threadKey(item); thread != "" {
 				title := firstNonEmpty(item.Title, thread)
-				return "thread:" + thread, title, "thread", strings.TrimSpace(item.Scope)
+				return "thread:" + thread, displayLabel(title), "thread", strings.TrimSpace(item.Scope)
 			}
 		}
 		if container := strings.TrimSpace(item.Container); container != "" {
-			return "container:" + container, container, "channel", strings.TrimSpace(item.Scope)
+			return "container:" + container, displayLabel(container), "channel", strings.TrimSpace(item.Scope)
 		}
 		if author := strings.TrimSpace(itemAuthor(item)); author != "" {
-			return "author:" + author, author, "person", strings.TrimSpace(item.Scope)
+			return "author:" + author, displayLabel(author), "person", strings.TrimSpace(item.Scope)
 		}
 	case LayoutDocument:
 		if m.groupMode == groupByContainer {
 			if container := strings.TrimSpace(item.Container); container != "" {
-				return "container:" + container, container, "database", strings.TrimSpace(item.Scope)
+				return "container:" + container, displayLabel(container), "database", strings.TrimSpace(item.Scope)
 			}
 		}
 		if m.groupMode == groupByScope {
 			if scope := strings.TrimSpace(item.Scope); scope != "" {
-				return "scope:" + scope, scope, "workspace", scope
+				return "scope:" + scope, displayLabel(scope), "workspace", scope
 			}
 		}
 		if parent := strings.TrimSpace(item.ParentID); parent != "" {
-			return "parent:" + parent, parent, "parent", strings.TrimSpace(item.Scope)
+			return "parent:" + parent, displayLabel(parent), "parent", strings.TrimSpace(item.Scope)
 		}
 		if container := strings.TrimSpace(item.Container); container != "" {
-			return "container:" + container, container, "database", strings.TrimSpace(item.Scope)
+			return "container:" + container, displayLabel(container), "database", strings.TrimSpace(item.Scope)
 		}
 	}
 	for _, value := range []struct {
@@ -2022,11 +2025,11 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 		{"author:", strings.TrimSpace(item.Author), "person"},
 	} {
 		if value.title != "" {
-			return value.prefix + value.title, value.title, value.kind, strings.TrimSpace(item.Scope)
+			return value.prefix + value.title, displayLabel(value.title), value.kind, strings.TrimSpace(item.Scope)
 		}
 	}
 	title = firstNonEmpty(item.Title, item.ID, itemKind(item), "row")
-	return "row:" + title, title, firstNonEmpty(itemKind(item), "row"), strings.TrimSpace(item.Scope)
+	return "row:" + title, displayLabel(title), firstNonEmpty(itemKind(item), "row"), strings.TrimSpace(item.Scope)
 }
 
 func compareGroups(left, right itemGroup, mode sortMode) (bool, bool) {
@@ -3701,6 +3704,33 @@ func looksMachineID(value string) bool {
 		}
 	}
 	return digits >= 4
+}
+
+func displayLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if looksMachineID(value) {
+		return compactMachineID(value)
+	}
+	return value
+}
+
+func compactMachineID(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) <= 14 {
+		return value
+	}
+	prefix := value
+	suffix := ""
+	if len(value) > 8 {
+		prefix = value[:8]
+	}
+	if len(value) > 4 {
+		suffix = value[len(value)-4:]
+	}
+	if suffix == "" {
+		return prefix
+	}
+	return prefix + "..." + suffix
 }
 
 func titleStyle(width int) lipgloss.Style {

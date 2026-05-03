@@ -159,6 +159,26 @@ func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
 	}
 }
 
+func TestMachineIDsStayOutOfPrimaryPaneLabels(t *testing.T) {
+	rawID := "00b8cbcf-c520-4790-999a-9c2940263721"
+	item := Row{
+		Kind:     "page",
+		ID:       rawID,
+		ParentID: rawID,
+		Title:    rawID,
+	}.ItemForLayout(LayoutDocument)
+	if item.Title != "00b8cbcf...3721" {
+		t.Fatalf("title = %q", item.Title)
+	}
+	m := newModel(Options{Title: "notcrawl archive", Layout: LayoutDocument, Items: []Item{item}})
+	if len(m.groups) != 1 || m.groups[0].Title != "00b8cbcf...3721" {
+		t.Fatalf("groups = %#v", m.groups)
+	}
+	if item.ID != rawID || item.ParentID != rawID {
+		t.Fatalf("raw ids should remain in detail fields: %#v", item)
+	}
+}
+
 func TestRowsPaneUsesStableColumns(t *testing.T) {
 	line := rowListLine(Item{
 		Title:    "Can you check again? Hoping this update worked.",
