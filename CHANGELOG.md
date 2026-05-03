@@ -13,4 +13,5 @@
 - Fix shared `tui` pane-specific header sorting, scope sorting, and stable detail metadata labels across crawl apps.
 - Render shared `tui` parent/member panes with gitcrawl-style table columns, row styling, pane-local header sorting, and a 24-line minimum layout.
 - Use a gitcrawl-style viewport for `tui` detail panes so long threads and document previews scroll cleanly inside the focused pane.
+- Render `tui` detail content with gitcrawl-style sections, rules, markdown-ish wrapping, and pane-width-aware chat/document previews.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

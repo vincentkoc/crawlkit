@@ -167,6 +167,32 @@ func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 	}
 }
 
+func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "one", Scope: "guild", Container: "general", Author: "Amy", Title: "first update", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "two", Scope: "guild", Container: "general", Author: "Zed", Title: "second update", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 220
+	m.height = 34
+	view := stripANSI(m.View())
+	lines := strings.Split(view, "\n")
+	if len(lines) != 34 {
+		t.Fatalf("rendered height = %d, want 34:\n%s", len(lines), view)
+	}
+	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
+		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
+	}
+	for _, want := range []string{"Channels / People", "Messages", "Thread", "type", "count", "latest", "age", "scope", "group", "kind", "time", "where", "author", "title"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("wide render missing %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	groupHeader := groupListHeader(40, sortDefault)
@@ -183,7 +209,7 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 		Author:    "Vincent Koc",
 		CreatedAt: "2026-05-02T12:00:00Z",
 	}, 42)
-	for _, want := range []string{"DATE", "AGE", "WHO", "TITLE", "05-02", "Vinc", "Im working"} {
+	for _, want := range []string{"TIME", "AGE", "WHO", "TITLE", "05-02", "Vinc", "Im working"} {
 		if !strings.Contains(rowHeader+rowLine, want) {
 			t.Fatalf("compact row columns missing %q:\n%s\n%s", want, rowHeader, rowLine)
 		}
@@ -206,7 +232,7 @@ func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
 		Author:    "Vincent Koc",
 		CreatedAt: "2026-05-02T12:00:00Z",
 	}, 28)
-	for _, want := range []string{"DATE", "TITLE", "05-02", "Im working"} {
+	for _, want := range []string{"TIME", "TITLE", "05-02", "Im working"} {
 		if !strings.Contains(rowHeader+rowLine, want) {
 			t.Fatalf("narrow row columns missing %q:\n%s\n%s", want, rowHeader, rowLine)
 		}
@@ -270,6 +296,31 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 	if strings.Index(joined, "Thread") > strings.Index(joined, "Properties") {
 		t.Fatalf("chat detail should put readable content before properties:\n%s", joined)
+	}
+}
+
+func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "# Plan\n- ship columns\n- polish [preview](https://example.com)", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "> agreed\n`done`", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.selectItemIndex(1)
+	item, ok := m.selectedItem()
+	if !ok {
+		t.Fatal("missing selected item")
+	}
+	joined := stripANSI(strings.Join(m.detailLinesForWidth(item, 52), "\n"))
+	for _, want := range []string{"Plan", "- ship columns", "polish preview <https://example.com>", "> agreed", "done", "Properties", "IDs"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("markdown chat detail missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "# Plan") || strings.Contains(joined, "`done`") {
+		t.Fatalf("chat detail should render markdown-ish text, not raw markdown:\n%s", joined)
 	}
 }
 
@@ -804,6 +855,29 @@ func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
 	}
 	if strings.Index(joined, "Preview") > strings.Index(joined, "Properties") {
 		t.Fatalf("document preview should come before properties:\n%s", joined)
+	}
+}
+
+func TestDocumentDetailRendersMarkdownPreviewLikeGitcrawl(t *testing.T) {
+	item := Row{
+		Source:    "notion",
+		Kind:      "page",
+		ID:        "page1",
+		ParentID:  "Launch docs",
+		Scope:     "Workspace",
+		Container: "Roadmap DB",
+		Title:     "Launch plan",
+		Text:      "# Checklist\n- wire panes\n- review [spec](https://example.com/spec)\n> keep it readable",
+		UpdatedAt: "2026-05-01T12:00:00Z",
+	}.ItemForLayout(LayoutDocument)
+	joined := stripANSI(strings.Join(documentDetailLinesForWidth(item, 56), "\n"))
+	for _, want := range []string{"Launch plan", "Checklist", "- wire panes", "review spec <https://example.com/spec>", "> keep it readable", "Properties"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("document detail missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "# Checklist") {
+		t.Fatalf("document detail should render markdown-ish headings:\n%s", joined)
 	}
 }
 

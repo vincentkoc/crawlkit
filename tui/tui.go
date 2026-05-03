@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -20,6 +21,13 @@ import (
 )
 
 var ErrNotTerminal = errors.New("terminal UI requires an interactive terminal")
+
+var (
+	markdownHeadingRE = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
+	markdownListRE    = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.+)$`)
+	terminalControlRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
+)
 
 const (
 	wheelScrollDelay      = 16 * time.Millisecond
@@ -1093,7 +1101,7 @@ func (m model) renderDetailPane(rect rect) string {
 	if !ok {
 		return pane("Detail", "", []string{"No row selected."}, rect, focusDetail, m.focus, detailPaneAccent)
 	}
-	lines := m.detailLines(item)
+	lines := m.detailLinesForWidth(item, paneContentWidth(rect.w))
 	return m.renderDetailViewport(rect, lines)
 }
 
@@ -1107,7 +1115,8 @@ func (m *model) syncDetailViewport() {
 	if !ok {
 		return
 	}
-	m.configureDetailViewport(m.layout().detail, m.detailLines(item))
+	rect := m.layout().detail
+	m.configureDetailViewport(rect, m.detailLinesForWidth(item, paneContentWidth(rect.w)))
 }
 
 func (m *model) configureDetailViewport(rect rect, lines []string) {
@@ -2238,7 +2247,7 @@ func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow 
 			case "kind":
 				row = append(row, rowKind(item))
 			case "time":
-				row = append(row, rowWhen(item))
+				row = append(row, rowTimeForColumn(item, column.Width))
 			case "age":
 				row = append(row, rowAge(item))
 			case "container":
@@ -2300,17 +2309,17 @@ func memberColumns(width int, active sortMode) []tableColumn {
 		whenW := 5
 		titleW := maxInt(1, width-whenW-1)
 		return []tableColumn{
-			{Key: "time", Title: activeTimeLabel("date", active), Width: whenW},
+			{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
 			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 		}
 	}
-	if width < 68 {
+	if width < 54 {
 		whenW := 5
 		ageW := 4
 		authorW := minInt(maxInt(5, width/6), 9)
 		titleW := maxInt(1, width-whenW-ageW-authorW-3)
 		return []tableColumn{
-			{Key: "time", Title: activeTimeLabel("date", active), Width: whenW},
+			{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
 			{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
 			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
@@ -2442,29 +2451,38 @@ func contextLines(item Item, width int) []string {
 }
 
 func (m model) detailLines(item Item) []string {
+	return m.detailLinesForWidth(item, 1000)
+}
+
+func (m model) detailLinesForWidth(item Item, width int) []string {
+	width = maxInt(20, width)
 	switch m.layoutPreset {
 	case LayoutChat:
-		return m.chatDetailLines(item)
+		return m.chatDetailLines(item, width)
 	case LayoutDocument:
-		return documentDetailLines(item)
+		return documentDetailLinesForWidth(item, width)
 	}
-	return genericDetailLines(item)
+	return genericDetailLinesForWidth(item, width)
 }
 
 func genericDetailLines(item Item) []string {
+	return genericDetailLinesForWidth(item, 1000)
+}
+
+func genericDetailLinesForWidth(item Item, width int) []string {
 	detail := strings.TrimSpace(item.Detail)
 	var lines []string
 	context := detailContextLines(item, true)
 	if len(context) > 0 {
-		lines = append(lines, "Context")
+		lines = append(lines, bold("Context"))
 		lines = append(lines, context...)
 	}
 	if detail == "" {
 		detail = item.Subtitle
 	}
 	if detail != "" {
-		lines = append(lines, "", "Content")
-		lines = append(lines, wrapLines(detail, 1000)...)
+		lines = append(lines, "", dim(tuiRule(width)), bold("Content"))
+		lines = append(lines, markdownLines(detail, width)...)
 	}
 	if len(lines) == 0 {
 		lines = append(lines, "", "No detail for this row.")
@@ -2472,27 +2490,27 @@ func genericDetailLines(item Item) []string {
 	return lines
 }
 
-func (m model) chatDetailLines(item Item) []string {
+func (m model) chatDetailLines(item Item, width int) []string {
 	var lines []string
 	if header := chatHeaderLine(item); header != "" {
-		lines = append(lines, header)
+		lines = append(lines, bold(header))
 	}
 	if meta := chatMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
-	if thread := m.threadLines(item); len(thread) > 0 {
-		lines = append(lines, "", "Thread")
+	if thread := m.threadLines(item, width); len(thread) > 0 {
+		lines = append(lines, "", dim(tuiRule(width)), bold("Thread"))
 		lines = append(lines, thread...)
 	} else if message := strings.TrimSpace(firstNonEmpty(item.Text, item.Detail, item.Title)); message != "" {
-		lines = append(lines, "", "Message")
-		lines = append(lines, chatBubbleLines(item, message, true)...)
+		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
+		lines = append(lines, chatBubbleLines(item, message, true, width)...)
 	}
 	if properties := chatPropertyLines(item); len(properties) > 0 {
-		lines = append(lines, "", "Properties")
+		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
 		lines = append(lines, properties...)
 	}
 	if ids := chatIDLines(item); len(ids) > 0 {
-		lines = append(lines, "", "IDs")
+		lines = append(lines, "", dim(tuiRule(width)), bold("IDs"))
 		lines = append(lines, ids...)
 	}
 	if len(lines) == 0 {
@@ -2502,23 +2520,27 @@ func (m model) chatDetailLines(item Item) []string {
 }
 
 func documentDetailLines(item Item) []string {
+	return documentDetailLinesForWidth(item, 1000)
+}
+
+func documentDetailLinesForWidth(item Item, width int) []string {
 	var lines []string
 	title := firstNonEmpty(item.Title, item.ID, "Untitled")
-	lines = append(lines, title)
+	lines = append(lines, bold(title))
 	if meta := documentMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
 	if location := documentLocationLines(item); len(location) > 0 {
-		lines = append(lines, "", "Location")
+		lines = append(lines, "", dim(tuiRule(width)), bold("Location"))
 		lines = append(lines, location...)
 	}
 	preview := documentPreview(item)
 	if preview != "" {
-		lines = append(lines, "", "Preview")
-		lines = append(lines, wrapLines(preview, 1000)...)
+		lines = append(lines, "", dim(tuiRule(width)), bold("Preview"))
+		lines = append(lines, markdownLines(preview, width)...)
 	}
 	if metadata := documentPropertyLines(item); len(metadata) > 0 {
-		lines = append(lines, "", "Properties")
+		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
 		lines = append(lines, metadata...)
 	}
 	if len(lines) == 0 {
@@ -2614,6 +2636,20 @@ func indentWrappedLines(value string, indent, width int) []string {
 	return out
 }
 
+func indentMarkdownLines(value string, indent, width int) []string {
+	prefix := strings.Repeat(" ", maxInt(0, indent))
+	raw := markdownLines(value, maxInt(8, width-indent))
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		if line == "" {
+			out = append(out, "")
+			continue
+		}
+		out = append(out, prefix+line)
+	}
+	return out
+}
+
 func detailContextLines(item Item, includeTitle bool) []string {
 	var lines []string
 	fields := []string{
@@ -2654,7 +2690,7 @@ func detailContextLines(item Item, includeTitle bool) []string {
 	return lines
 }
 
-func (m model) threadLines(selected Item) []string {
+func (m model) threadLines(selected Item, width int) []string {
 	key := threadKey(selected)
 	if key == "" {
 		return nil
@@ -2669,7 +2705,7 @@ func (m model) threadLines(selected Item) []string {
 			continue
 		}
 		text := firstNonEmpty(item.Text, item.Detail, item.Title)
-		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID)...)
+		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID, width)...)
 	}
 	if len(lines) <= 1 {
 		return nil
@@ -2677,7 +2713,7 @@ func (m model) threadLines(selected Item) []string {
 	return lines
 }
 
-func chatBubbleLines(item Item, text string, selected bool) []string {
+func chatBubbleLines(item Item, text string, selected bool, width int) []string {
 	var lines []string
 	prefix := "  "
 	if selected {
@@ -2687,7 +2723,7 @@ func chatBubbleLines(item Item, text string, selected bool) []string {
 	if header != "" {
 		lines = append(lines, prefix+header)
 	}
-	body := indentWrappedLines(text, lipgloss.Width(prefix)+2, 1000)
+	body := indentMarkdownLines(text, lipgloss.Width(prefix)+2, width)
 	if len(body) == 0 {
 		body = []string{strings.Repeat(" ", lipgloss.Width(prefix)+2) + "(empty)"}
 	}
@@ -2970,9 +3006,9 @@ func compactRowListHeader(width int, active sortMode) string {
 	if width < 34 {
 		whenW := 5
 		titleW := maxInt(1, width-whenW-1)
-		return padCells(truncateCells("DATE", whenW), whenW) + " " + truncateCells("TITLE", titleW)
+		return padCells(truncateCells("TIME", whenW), whenW) + " " + truncateCells("TITLE", titleW)
 	}
-	timeLabel := "DATE"
+	timeLabel := "TIME"
 	age := "AGE"
 	author := "WHO"
 	title := "TITLE"
@@ -3066,6 +3102,13 @@ func rowWhen(item Item) string {
 		}
 	}
 	return ""
+}
+
+func rowTimeForColumn(item Item, width int) string {
+	if width <= 5 {
+		return compactDate(item)
+	}
+	return rowWhen(item)
 }
 
 func rowAge(item Item) string {
@@ -3245,6 +3288,104 @@ func dim(value string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveMutedFG)).Render(value)
 }
 
+func tuiRule(width int) string {
+	return strings.Repeat("-", minInt(72, maxInt(12, width)))
+}
+
+func markdownLines(value string, width int) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	width = maxInt(20, width)
+	var lines []string
+	inFence := false
+	blankRun := 0
+	for _, rawLine := range strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n") {
+		line := strings.TrimRight(stripTerminalControls(rawLine), " \t")
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			lines = append(lines, dim("--- code ---"))
+			blankRun = 0
+			continue
+		}
+		if inFence {
+			lines = append(lines, dim(truncateCells(line, width)))
+			blankRun = 0
+			continue
+		}
+		if trimmed == "" {
+			blankRun++
+			if blankRun <= 1 {
+				lines = append(lines, "")
+			}
+			continue
+		}
+		blankRun = 0
+		if match := markdownHeadingRE.FindStringSubmatch(trimmed); match != nil {
+			lines = appendWrappedStyled(lines, "", renderInlineMarkdown(match[2]), width, bold)
+			continue
+		}
+		if strings.HasPrefix(trimmed, ">") {
+			quote := strings.TrimSpace(strings.TrimPrefix(trimmed, ">"))
+			lines = appendWrappedStyled(lines, "> ", renderInlineMarkdown(quote), width, dim)
+			continue
+		}
+		if match := markdownListRE.FindStringSubmatch(line); match != nil {
+			indent := match[1]
+			if lipgloss.Width(indent) > 4 {
+				indent = strings.Repeat(" ", 4)
+			}
+			lines = appendWrappedStyled(lines, indent+"- ", renderInlineMarkdown(match[3]), width, nil)
+			continue
+		}
+		lines = appendWrappedStyled(lines, "", renderInlineMarkdown(line), width, nil)
+	}
+	return trimTrailingBlankLines(lines)
+}
+
+func appendWrappedStyled(lines []string, prefix, value string, width int, styler func(string) string) []string {
+	contentWidth := maxInt(8, width-lipgloss.Width(prefix))
+	wrapped := wrapPlain(value, contentWidth)
+	if len(wrapped) == 0 {
+		return lines
+	}
+	continuation := strings.Repeat(" ", lipgloss.Width(prefix))
+	for index, line := range wrapped {
+		prefixForLine := prefix
+		if index > 0 {
+			prefixForLine = continuation
+		}
+		if styler != nil {
+			line = styler(line)
+		}
+		lines = append(lines, prefixForLine+line)
+	}
+	return lines
+}
+
+func renderInlineMarkdown(value string) string {
+	value = markdownLinkRE.ReplaceAllString(value, "$1 <$2>")
+	replacer := strings.NewReplacer(
+		"`", "",
+		"**", "",
+		"__", "",
+		"~~", "",
+	)
+	return strings.TrimSpace(replacer.Replace(value))
+}
+
+func stripTerminalControls(value string) string {
+	return terminalControlRE.ReplaceAllString(value, "")
+}
+
+func trimTrailingBlankLines(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
 func mutedStyle(width int) lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(lipgloss.Color(archiveMutedFG)).
@@ -3370,6 +3511,40 @@ func wrap(value string, width int) string {
 	}
 	b.WriteString(value)
 	return b.String()
+}
+
+func wrapPlain(value string, width int) []string {
+	width = maxInt(20, width)
+	words := strings.Fields(value)
+	if len(words) == 0 {
+		return []string{""}
+	}
+	var lines []string
+	var line string
+	for _, word := range words {
+		if lipgloss.Width(word) > width {
+			if line != "" {
+				lines = append(lines, line)
+				line = ""
+			}
+			lines = append(lines, truncateCells(word, width))
+			continue
+		}
+		if lipgloss.Width(line)+1+lipgloss.Width(word) > width && line != "" {
+			lines = append(lines, line)
+			line = word
+			continue
+		}
+		if line == "" {
+			line = word
+		} else {
+			line += " " + word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func wrapLines(value string, width int) []string {
