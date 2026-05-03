@@ -3772,9 +3772,18 @@ func chatMetaLine(item Item) string {
 	parts := []string{
 		itemKind(item),
 		chatThreadLabel(item),
+		chatReplyCountLabel(item),
 		rowAge(item),
 	}
 	return joinNonEmpty(parts, "  ")
+}
+
+func chatReplyCountLabel(item Item) string {
+	value := strings.TrimSpace(firstNonEmpty(fieldValue(item, "reply_count"), fieldValue(item, "replies")))
+	if value == "" || value == "0" {
+		return ""
+	}
+	return value + " replies"
 }
 
 func chatThreadLabel(item Item) string {

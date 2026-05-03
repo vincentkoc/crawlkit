@@ -494,6 +494,21 @@ func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
 	}
 }
 
+func TestChatDetailShowsReplyCountMetadata(t *testing.T) {
+	item := Row{
+		Kind:      "message",
+		ID:        "m1",
+		Container: "general",
+		Author:    "alice",
+		Text:      "root message",
+		Fields:    map[string]string{"reply_count": "3"},
+	}.ItemForLayout(LayoutChat)
+	joined := stripANSI(strings.Join(newModel(Options{Layout: LayoutChat}).chatDetailLines(item, 60), "\n"))
+	if !strings.Contains(joined, "3 replies") {
+		t.Fatalf("chat detail missing reply count:\n%s", joined)
+	}
+}
+
 func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 	m := newModel(Options{
 		Title:  "discrawl archive",

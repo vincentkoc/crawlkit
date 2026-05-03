@@ -35,5 +35,6 @@
 - Keep split-width member tables readable by rendering compact dates instead of truncated ISO timestamps.
 - Prioritize gitcrawl-style footer muscle-memory controls in compact tmux panes before app-specific extras.
 - Render selected chat message bodies with the same transcript marker as their speaker line so detail panes read more like chat.
+- Show chat reply counts in detail metadata when apps provide thread/reply counts.
 - Force the Bubble Tea program to shut down on terminal signals so interrupted TUIs restore terminal modes and do not leave orphaned tmux panes.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
