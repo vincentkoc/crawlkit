@@ -609,6 +609,8 @@ func newModel(opts Options) model {
 		sourceKind:     normalizeSourceKind(opts.SourceKind),
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 		layoutPreset:   layout,
+		sortMode:       sortNewest,
+		memberSortMode: sortNewest,
 		detailView:     viewport.New(1, 1),
 	}
 	if m.title == "" {

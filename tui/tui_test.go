@@ -627,7 +627,7 @@ func TestDetailModeToggleStartsFullLikeGitcrawl(t *testing.T) {
 	}
 }
 
-func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
+func TestChatMembersDefaultToNewestFirstLikeGitcrawl(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
 		Layout: LayoutChat,
@@ -640,13 +640,13 @@ func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
 	if len(members) != 2 {
 		t.Fatalf("members = %#v", members)
 	}
-	if got := m.items[members[0]].ID; got != "old" {
-		t.Fatalf("first member = %q, want oldest message first", got)
-	}
-	m.setMemberSortMode(sortNewest)
-	members = m.currentGroupMembers()
 	if got := m.items[members[0]].ID; got != "new" {
-		t.Fatalf("newest sort first member = %q, want newest message first", got)
+		t.Fatalf("first member = %q, want newest message first", got)
+	}
+	m.setMemberSortMode(sortOldest)
+	members = m.currentGroupMembers()
+	if got := m.items[members[0]].ID; got != "old" {
+		t.Fatalf("oldest sort first member = %q, want oldest message first", got)
 	}
 }
 
@@ -1171,6 +1171,12 @@ func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
 	for _, group := range m.groups {
 		beforeGroups = append(beforeGroups, group.Title)
 	}
+	for i, group := range m.groups {
+		if group.Title == "general" {
+			m.selectGroup(i)
+			break
+		}
+	}
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if !m.menuOpen || m.menuTitle != "Sort Members" {
@@ -1178,7 +1184,7 @@ func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = updated.(model)
-	if m.sortMode != sortDefault {
+	if m.sortMode != sortNewest {
 		t.Fatalf("group sort changed to %v", m.sortMode)
 	}
 	if m.memberSortMode != sortAuthor {
@@ -1224,12 +1230,12 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = updated.(model)
-	if m.menuOpen || m.sortMode != sortNewest || !strings.Contains(m.status, "Sort: newest") {
+	if m.menuOpen || m.sortMode != sortOldest || !strings.Contains(m.status, "Sort: oldest") {
 		t.Fatalf("s should cycle group sort, menu=%v sort=%v status=%q", m.menuOpen, m.sortMode, m.status)
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
 	m = updated.(model)
-	if m.menuOpen || m.memberSortMode != sortNewest || !strings.Contains(m.status, "Member sort: newest") {
+	if m.menuOpen || m.memberSortMode != sortOldest || !strings.Contains(m.status, "Member sort: oldest") {
 		t.Fatalf("m should cycle member sort, menu=%v member=%v status=%q", m.menuOpen, m.memberSortMode, m.status)
 	}
 }
@@ -1291,7 +1297,7 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	view := m.View()
-	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/2 rows") || !strings.Contains(view, "general") {
+	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/1 rows") || !strings.Contains(view, "random") {
 		t.Fatalf("chat explorer did not render grouped panes:\n%s", view)
 	}
 	if len(m.groups) != 2 {
@@ -1307,7 +1313,6 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 		}
 	}
 	m.focus = focusContext
-	m.moveMember(1)
 	item, ok := m.selectedItem()
 	if !ok || item.Title != "second" {
 		t.Fatalf("selected member = %#v ok=%v", item, ok)
