@@ -267,11 +267,16 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 
 func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
-	groupHeader := groupListHeader(40, sortDefault)
-	groupLine := groupListLine(group, 40)
+	groupHeader := groupListHeader(56, sortDefault)
+	groupLine := groupListLine(group, 56)
 	for _, want := range []string{"N", "AGE", "GROUP", "18", "github-secure"} {
 		if !strings.Contains(groupHeader+groupLine, want) {
 			t.Fatalf("compact group columns missing %q:\n%s\n%s", want, groupHeader, groupLine)
+		}
+	}
+	for _, want := range []string{"TIME", "05-02"} {
+		if !strings.Contains(groupHeader+groupLine, want) {
+			t.Fatalf("compact group time column missing %q:\n%s\n%s", want, groupHeader, groupLine)
 		}
 	}
 

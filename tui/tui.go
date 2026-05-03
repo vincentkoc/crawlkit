@@ -2856,6 +2856,17 @@ func groupColumns(width int, active sortMode) []tableColumn {
 		kindW := 8
 		countW := 3
 		ageW := 4
+		if width >= 52 {
+			timeW := 5
+			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
+			return []tableColumn{
+				{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
+				{Key: "count", Title: "n", Width: countW},
+				{Key: "time", Title: activeTimeLabel("time", active), Width: timeW},
+				{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+				{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+			}
+		}
 		titleW := maxInt(1, width-kindW-countW-ageW-3)
 		return []tableColumn{
 			{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
@@ -3461,6 +3472,15 @@ func compactGroupListLine(group itemGroup, width int) string {
 	ageW := 4
 	if width >= 44 {
 		kindW := 8
+		if width >= 52 {
+			timeW := 5
+			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
+			return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
+				padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
+				padCells(truncateCells(compactDateFromTimestamp(group.Latest), timeW), timeW) + " " +
+				padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
+				truncateCells(group.Title, titleW)
+		}
 		titleW := maxInt(1, width-kindW-countW-ageW-3)
 		return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
 			padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
@@ -3529,6 +3549,18 @@ func compactGroupListHeader(width int, active sortMode) string {
 		kind := "TYPE"
 		if active == sortKind {
 			kind = "TYPE v"
+		}
+		if width >= 52 {
+			timeLabel := "TIME"
+			if active == sortNewest || active == sortOldest {
+				timeLabel = "TIME v"
+			}
+			titleW := maxInt(1, width-kindW-countW-ageW-5-4)
+			return padCells(truncateCells(kind, kindW), kindW) + " " +
+				padCells(truncateCells(count, countW), countW) + " " +
+				padCells(truncateCells(timeLabel, 5), 5) + " " +
+				padCells(truncateCells(age, ageW), ageW) + " " +
+				truncateCells(title, titleW)
 		}
 		titleW := maxInt(1, width-kindW-countW-ageW-3)
 		return padCells(truncateCells(kind, kindW), kindW) + " " +
@@ -3714,6 +3746,14 @@ func compactDate(item Item) string {
 		return t.UTC().Format("01-02")
 	}
 	return ""
+}
+
+func compactDateFromTimestamp(value string) string {
+	t, ok := parseTimestamp(value)
+	if !ok {
+		return ""
+	}
+	return t.UTC().Format("01-02")
 }
 
 func ageFromTimestamp(value string) string {
