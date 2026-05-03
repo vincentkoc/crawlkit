@@ -360,6 +360,22 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	}
 }
 
+func TestGroupColumnsOmitEmptyScope(t *testing.T) {
+	m := newModel(Options{Layout: LayoutChat, Items: []Item{
+		Row{Kind: "message", Container: "general", Title: "message", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+	}})
+	columns := m.groupColumns(90)
+	for _, column := range columns {
+		if column.Key == "scope" {
+			t.Fatalf("blank group scopes should not reserve a scope column: %#v", columns)
+		}
+	}
+	view := stripANSI(m.View())
+	if strings.Contains(view, "scope") {
+		t.Fatalf("view should not show an empty scope column:\n%s", view)
+	}
+}
+
 func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	groupHeader := groupListHeader(28, sortDefault)

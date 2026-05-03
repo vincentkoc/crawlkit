@@ -3153,16 +3153,31 @@ func (m model) groupColumns(width int) []tableColumn {
 	countW := minInt(maxInt(4, width/12), 7)
 	timeW := minInt(maxInt(12, width/5), 18)
 	ageW := minInt(maxInt(4, width/16), 7)
-	scopeW := minInt(maxInt(8, width/7), 16)
-	titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
-	return []tableColumn{
+	columns := []tableColumn{
 		{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
 		{Key: "count", Title: countLabel, Width: countW},
 		{Key: "time", Title: activeTimeLabel("latest", active), Width: timeW},
 		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-		{Key: "scope", Title: activeLabel("scope", active == sortScope), Width: scopeW},
-		{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 	}
+	if m.hasVisibleGroupScope() {
+		scopeW := minInt(maxInt(8, width/7), 16)
+		titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
+		columns = append(columns, tableColumn{Key: "scope", Title: activeLabel("scope", active == sortScope), Width: scopeW})
+		columns = append(columns, tableColumn{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW})
+		return columns
+	}
+	titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
+	columns = append(columns, tableColumn{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW})
+	return columns
+}
+
+func (m model) hasVisibleGroupScope() bool {
+	for _, group := range m.groups {
+		if strings.TrimSpace(group.Scope) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (m model) groupCountLabel(width int) string {
