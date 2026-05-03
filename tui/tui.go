@@ -703,7 +703,7 @@ func (m *model) handleRightClick(x, y int) {
 func (m *model) selectGroupAt(rect rect, x, y int) {
 	row := y - rect.y - 3
 	if row == -1 {
-		m.sortRowsFromHeader(x - rect.x - 2)
+		m.sortGroupsFromHeader(x-rect.x-2, paneContentWidth(rect.w))
 		return
 	}
 	if row < 0 || row >= rowsViewportHeight(rect.h) {
@@ -719,7 +719,7 @@ func (m *model) selectGroupAt(rect rect, x, y int) {
 func (m *model) selectMemberAt(rect rect, x, y int) {
 	row := y - rect.y - 3
 	if row == -1 {
-		m.sortRowsFromHeader(x - rect.x - 2)
+		m.sortMembersFromHeader(x-rect.x-2, paneContentWidth(rect.w))
 		return
 	}
 	members := m.currentGroupMembers()
@@ -1587,7 +1587,11 @@ func (m model) sortGroupMembers(members []int) {
 			if less, ok := compareStrings(itemKind(left), itemKind(right)); ok {
 				return less
 			}
-		case sortScope, sortContainer:
+		case sortScope:
+			if less, ok := compareStrings(itemScope(left), itemScope(right)); ok {
+				return less
+			}
+		case sortContainer:
 			if less, ok := compareStrings(itemContainer(left), itemContainer(right)); ok {
 				return less
 			}
@@ -2319,7 +2323,7 @@ func documentLocationLines(item Item) []string {
 func documentPropertyLines(item Item) []string {
 	lines := compactNonEmpty([]string{
 		fieldLine("kind", itemKind(item)),
-		fieldLine("source", item.Source),
+		fieldLine("provider", item.Source),
 		fieldLine("created", shortTimestamp(item.CreatedAt)),
 		fieldLine("updated", shortTimestamp(item.UpdatedAt)),
 		fieldLine("id", item.ID),
@@ -2471,12 +2475,19 @@ func compactFieldLines(fields map[string]string, keys ...string) []string {
 		}
 		seen[strings.ToLower(strings.TrimSpace(key))] = struct{}{}
 	}
-	for key, value := range fields {
+	remaining := make([]string, 0, len(fields))
+	for key := range fields {
 		normalized := strings.ToLower(strings.TrimSpace(key))
 		if _, ok := seen[normalized]; ok {
 			continue
 		}
-		if line := fieldLine(key, value); line != "" {
+		remaining = append(remaining, key)
+	}
+	sort.SliceStable(remaining, func(i, j int) bool {
+		return strings.ToLower(strings.TrimSpace(remaining[i])) < strings.ToLower(strings.TrimSpace(remaining[j]))
+	})
+	for _, key := range remaining {
+		if line := fieldLine(key, fields[key]); line != "" {
 			lines = append(lines, line)
 		}
 	}
@@ -2725,10 +2736,39 @@ func compactRowListHeader(width int, active sortMode) string {
 		truncateCells(title, titleW)
 }
 
-func (m *model) sortRowsFromHeader(x int) {
-	width := paneContentWidth(m.layout().rows.w)
-	if width >= 34 && width < 68 {
-		m.sortCompactHeader(x, width)
+func (m *model) sortGroupsFromHeader(x, width int) {
+	if width >= 24 && width < 68 {
+		m.sortCompactGroupHeader(x, width)
+		return
+	}
+	if width < 68 {
+		m.setSortMode(sortTitle)
+		return
+	}
+	kindW := minInt(maxInt(6, width/8), 10)
+	countW := minInt(maxInt(4, width/12), 7)
+	timeW := minInt(maxInt(12, width/5), 18)
+	ageW := minInt(maxInt(4, width/16), 7)
+	scopeW := minInt(maxInt(8, width/7), 16)
+	switch {
+	case x < kindW:
+		m.setSortMode(sortKind)
+	case x < kindW+1+countW:
+		return
+	case x < kindW+1+countW+1+timeW:
+		m.toggleTimeSort()
+	case x < kindW+1+countW+1+timeW+1+ageW:
+		m.toggleTimeSort()
+	case x < kindW+1+countW+1+timeW+1+ageW+1+scopeW:
+		m.setSortMode(sortScope)
+	default:
+		m.setSortMode(sortTitle)
+	}
+}
+
+func (m *model) sortMembersFromHeader(x, width int) {
+	if width >= 24 && width < 68 {
+		m.sortCompactMemberHeader(x, width)
 		return
 	}
 	if width < 68 {
@@ -2744,17 +2784,9 @@ func (m *model) sortRowsFromHeader(x int) {
 	case x < kindW:
 		m.setSortMode(sortKind)
 	case x < kindW+1+whenW:
-		if m.sortMode == sortNewest {
-			m.setSortMode(sortOldest)
-		} else {
-			m.setSortMode(sortNewest)
-		}
+		m.toggleTimeSort()
 	case x < kindW+1+whenW+1+ageW:
-		if m.sortMode == sortNewest {
-			m.setSortMode(sortOldest)
-		} else {
-			m.setSortMode(sortNewest)
-		}
+		m.toggleTimeSort()
 	case x < kindW+1+whenW+1+ageW+1+whereW:
 		m.setSortMode(sortContainer)
 	case x < kindW+1+whenW+1+ageW+1+whereW+1+authorW:
@@ -2764,22 +2796,62 @@ func (m *model) sortRowsFromHeader(x int) {
 	}
 }
 
-func (m *model) sortCompactHeader(x int, width int) {
+func (m *model) sortCompactGroupHeader(x, width int) {
+	countW := 3
+	ageW := 4
+	if width >= 44 {
+		kindW := 8
+		switch {
+		case x < kindW:
+			m.setSortMode(sortKind)
+		case x < kindW+1+countW:
+			return
+		case x < kindW+1+countW+1+ageW:
+			m.toggleTimeSort()
+		default:
+			m.setSortMode(sortTitle)
+		}
+		return
+	}
+	switch {
+	case x < countW:
+		return
+	case x < countW+1+ageW:
+		m.toggleTimeSort()
+	default:
+		m.setSortMode(sortTitle)
+	}
+}
+
+func (m *model) sortCompactMemberHeader(x, width int) {
+	if width < 34 {
+		whenW := 5
+		if x < whenW {
+			m.toggleTimeSort()
+			return
+		}
+		m.setSortMode(sortTitle)
+		return
+	}
 	whenW := 5
 	ageW := 4
 	authorW := minInt(maxInt(5, width/6), 9)
 	switch {
 	case x < whenW+1+ageW:
-		if m.sortMode == sortNewest {
-			m.setSortMode(sortOldest)
-		} else {
-			m.setSortMode(sortNewest)
-		}
+		m.toggleTimeSort()
 	case x < whenW+1+ageW+1+authorW:
 		m.setSortMode(sortAuthor)
 	default:
 		m.setSortMode(sortTitle)
 	}
+}
+
+func (m *model) toggleTimeSort() {
+	if m.sortMode == sortNewest {
+		m.setSortMode(sortOldest)
+		return
+	}
+	m.setSortMode(sortNewest)
 }
 
 func rowKind(item Item) string {

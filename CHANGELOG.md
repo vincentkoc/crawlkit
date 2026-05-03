@@ -10,4 +10,5 @@
 - Align `tui` pane chrome with `gitcrawl`: wide three-column layout, split/stacked resize modes, focused pane titles, compact row headers, click-to-sort headers, and floating right-click menus.
 - Make the shared `tui` explorer group-aware: left pane now shows channels/people or document parents, middle pane shows group members, and right pane shows detail/thread content.
 - Polish shared `tui` detail panes with chat-style transcript rendering, document location/preview sections, chronological chat member ordering, and compact columns in narrower tmux panes.
+- Fix shared `tui` pane-specific header sorting, scope sorting, and stable detail metadata labels across crawl apps.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

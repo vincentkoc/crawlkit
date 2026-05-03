@@ -265,6 +265,25 @@ func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
 	}
 }
 
+func TestChatMembersScopeSortUsesScopeNotContainer(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "one", Scope: "z-workspace", Container: "general", Title: "one"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "two", Scope: "a-workspace", Container: "general", Title: "two"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.setSortMode(sortScope)
+	members := m.currentGroupMembers()
+	if len(members) != 2 {
+		t.Fatalf("members = %#v", members)
+	}
+	if got := m.items[members[0]].ID; got != "two" {
+		t.Fatalf("scope-sorted first member = %q, want a-workspace row", got)
+	}
+}
+
 func TestFocusedDetailPaneScrollsIndependently(t *testing.T) {
 	m := newModel(Options{
 		Title: "discrawl archive",
@@ -666,6 +685,40 @@ func TestClickingRowsHeaderSorts(t *testing.T) {
 	}
 }
 
+func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "z", Container: "general", Author: "Zed", Title: "later", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "a", Container: "general", Author: "Amy", Title: "earlier", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 300
+	m.height = 24
+	layout := m.layout()
+	contextWidth := paneContentWidth(layout.context.w)
+	kindW := minInt(maxInt(5, contextWidth/10), 10)
+	whenW := minInt(maxInt(10, contextWidth/6), 16)
+	ageW := minInt(maxInt(4, contextWidth/16), 7)
+	whereW := minInt(maxInt(10, contextWidth/5), 22)
+	authorX := kindW + 1 + whenW + 1 + ageW + 1 + whereW + 1
+	updated, _ := m.Update(tea.MouseMsg{
+		X:      layout.context.x + 2 + authorX,
+		Y:      layout.context.y + 2,
+		Button: tea.MouseButtonLeft,
+		Action: tea.MouseActionPress,
+	})
+	m = updated.(model)
+	if m.sortMode != sortAuthor {
+		t.Fatalf("sort mode = %v, want author", m.sortMode)
+	}
+	members := m.currentGroupMembers()
+	if got := m.items[members[0]].Author; got != "Amy" {
+		t.Fatalf("first author = %q, want Amy", got)
+	}
+}
+
 func TestRowStyleUsesSubtleSelectedPalette(t *testing.T) {
 	selected := rowStyle(80, true, true)
 	if fmt.Sprint(selected.GetForeground()) != archiveSelectedFG {
@@ -723,6 +776,28 @@ func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
 	}
 	if strings.Index(joined, "Preview") > strings.Index(joined, "Properties") {
 		t.Fatalf("document preview should come before properties:\n%s", joined)
+	}
+}
+
+func TestDocumentDetailSeparatesProviderAndSource(t *testing.T) {
+	item := Row{
+		Source: "notion",
+		Kind:   "page",
+		ID:     "page1",
+		Title:  "Launch plan",
+		Fields: map[string]string{"source": "desktop", "zeta": "last", "alpha": "first"},
+	}.ItemForLayout(LayoutDocument)
+	joined := strings.Join(documentDetailLines(item), "\n")
+	for _, want := range []string{"provider=notion", "source=desktop"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("document detail missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "source=notion") {
+		t.Fatalf("document detail should not duplicate provider as source:\n%s", joined)
+	}
+	if strings.Index(joined, "alpha=first") > strings.Index(joined, "zeta=last") {
+		t.Fatalf("field tail should be stable and sorted:\n%s", joined)
 	}
 }
 
