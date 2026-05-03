@@ -3116,17 +3116,6 @@ func (m model) groupColumns(width int) []tableColumn {
 		countW := 3
 		timeW := 5
 		ageW := 4
-		if width >= 52 {
-			kindW := 8
-			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
-			return []tableColumn{
-				{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
-				{Key: "count", Title: countLabel, Width: countW},
-				{Key: "time", Title: activeTimeLabel("date", active), Width: timeW},
-				{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-				{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
-			}
-		}
 		titleW := maxInt(1, width-countW-timeW-ageW-3)
 		return []tableColumn{
 			{Key: "count", Title: countLabel, Width: countW},

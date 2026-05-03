@@ -30,4 +30,5 @@
 - Include selected chat row URLs in full detail properties so message panes expose the same useful link context as `gitcrawl`.
 - Align shared TUI pane accents, header, footer, and selected-row colors with the current `gitcrawl` terminal browser palette.
 - Match `gitcrawl` help behavior by rendering `?` help inside the detail pane instead of replacing the screen with a menu.
+- Keep medium-width group panes focused on count/date/age/name instead of repeating the group kind on every row.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
