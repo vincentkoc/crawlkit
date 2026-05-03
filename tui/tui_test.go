@@ -952,6 +952,28 @@ func TestKeyboardActionShortcutAliasOpensMenu(t *testing.T) {
 	}
 }
 
+func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "alpha", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 160
+	m.height = 30
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = updated.(model)
+	view := stripANSI(m.View())
+	for _, want := range []string{"Detail compact", "Actions", "current selection", "Open selected URL"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "Detail Row Actions") || strings.Contains(view, "row scope") {
+		t.Fatalf("action menu should keep gitcrawl-style detail chrome:\n%s", view)
+	}
+}
+
 func TestMouseDoubleClickOpensSelectedRowURL(t *testing.T) {
 	previousOpen := openURL
 	var opened []string

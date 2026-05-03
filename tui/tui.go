@@ -1641,7 +1641,7 @@ func (m model) renderContextPane(rect rect) string {
 
 func (m model) renderDetailPane(rect rect) string {
 	if m.menuOpen && !m.menuFloating {
-		return pane(m.menuTitle, "enter/1-9 choose  esc close", m.menuLines(paneContentWidth(rect.w)), rect, focusDetail, m.focus, detailPaneAccent)
+		return m.renderDetailViewport(rect, m.menuLines(paneContentWidth(rect.w)))
 	}
 	item, ok := m.selectedItem()
 	if !ok {
@@ -1702,7 +1702,7 @@ func (m model) menuLines(width int) []string {
 		return []string{"No actions."}
 	}
 	palette := actionMenuColors(m.menuContext)
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.accent)).Render(firstNonEmpty(m.menuTitle, "Actions"))
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(palette.accent)).Render(m.displayMenuTitle())
 	lines := []string{title, dim(actionMenuSubtitle(m.menuContext)), ""}
 	visible := m.menuVisibleCount()
 	start := clampInt(m.menuOff, 0, maxInt(0, len(m.menuItems)-visible))
@@ -1735,6 +1735,15 @@ func (m model) menuLines(width int) []string {
 	}
 	lines = append(lines, "", dim(footer))
 	return lines
+}
+
+func (m model) displayMenuTitle() string {
+	switch m.menuTitle {
+	case "Row Actions", "Context Actions", "Detail Actions":
+		return "Actions"
+	default:
+		return firstNonEmpty(m.menuTitle, "Actions")
+	}
 }
 
 type actionMenuPalette struct {
@@ -1775,16 +1784,7 @@ func actionMenuColors(context paneFocus) actionMenuPalette {
 }
 
 func actionMenuSubtitle(context paneFocus) string {
-	switch context {
-	case focusRows:
-		return "row scope"
-	case focusContext:
-		return "context scope"
-	case focusDetail:
-		return "detail scope"
-	default:
-		return "current selection"
-	}
+	return "current selection"
 }
 
 func actionMenuTitle(context paneFocus) string {
