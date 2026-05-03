@@ -2933,7 +2933,7 @@ func (m model) chatDetailLines(item Item, width int) []string {
 	if thread := m.threadLines(item, width); len(thread) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Thread"))
 		lines = append(lines, thread...)
-	} else if message := strings.TrimSpace(firstNonEmpty(item.Text, item.Detail, item.Title)); message != "" {
+	} else if message := chatBodyText(item); message != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
 		lines = append(lines, chatBubbleLines(item, message, true, width)...)
 	}
@@ -3138,7 +3138,7 @@ func (m model) threadLines(selected Item, width int) []string {
 		if threadKey(item) != key {
 			continue
 		}
-		text := firstNonEmpty(item.Text, item.Detail, item.Title)
+		text := chatBodyText(item)
 		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID, width)...)
 	}
 	if len(lines) <= 1 {
@@ -3163,6 +3163,10 @@ func chatBubbleLines(item Item, text string, selected bool, width int) []string 
 	}
 	lines = append(lines, body...)
 	return lines
+}
+
+func chatBodyText(item Item) string {
+	return strings.TrimSpace(firstNonEmpty(item.Detail, item.Text, item.Title))
 }
 
 func chatPropertyLines(item Item) []string {

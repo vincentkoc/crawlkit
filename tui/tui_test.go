@@ -425,6 +425,20 @@ func TestChatDetailDoesNotTreatMetadataAsMessageBody(t *testing.T) {
 	}
 }
 
+func TestChatDetailPrefersExplicitReadableDetail(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "raw", Text: "<@U1> raw body", Detail: "Alice readable body"}.ItemForLayout(LayoutChat),
+		},
+	})
+	joined := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(joined, "Alice readable body") || strings.Contains(joined, "<@U1> raw body") {
+		t.Fatalf("chat detail should prefer readable explicit detail:\n%s", joined)
+	}
+}
+
 func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
 	m := newModel(Options{
 		Title:  "discrawl archive",
