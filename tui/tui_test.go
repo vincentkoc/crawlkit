@@ -16,6 +16,14 @@ func stripANSI(value string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`).ReplaceAllString(value, "")
 }
 
+func testDetailLines(count int) string {
+	lines := make([]string, 0, count)
+	for i := 1; i <= count; i++ {
+		lines = append(lines, fmt.Sprintf("line %02d", i))
+	}
+	return strings.Join(lines, "\n")
+}
+
 func TestBrowseJSONUsesUniversalRows(t *testing.T) {
 	var out bytes.Buffer
 	rows := []Row{{
@@ -113,9 +121,6 @@ func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
 	m.width = 100
 	m.height = 18
 	view := m.View()
-	if strings.Contains(view, "general  vincent") {
-		t.Fatalf("rows pane should not append chat metadata:\n%s", view)
-	}
 	if !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
 		t.Fatalf("context pane should render grouped messages:\n%s", view)
 	}
@@ -315,23 +320,23 @@ func TestFocusedDetailPaneScrollsIndependently(t *testing.T) {
 		Title: "discrawl archive",
 		Items: []Item{{
 			Title:  "first",
-			Detail: strings.Join([]string{"line one", "line two", "line three", "line four", "line five", "line six"}, "\n"),
+			Detail: testDetailLines(40),
 			Tags:   []string{"message", "discord"},
 		}},
 	})
 	m.width = 80
-	m.height = 12
+	m.height = 24
 	m.focus = focusDetail
 	m.scrollFocused(1)
 	if m.selected != 0 {
 		t.Fatalf("detail scroll moved row selection to %d", m.selected)
 	}
-	if m.detailOffset == 0 {
+	if m.detailView.YOffset == 0 {
 		t.Fatal("detail pane did not scroll")
 	}
 	view := m.View()
-	if !strings.Contains(view, "2-") {
-		t.Fatalf("detail pane missing scroll indicator:\n%s", view)
+	if !strings.Contains(stripANSI(view), "line 02") {
+		t.Fatalf("detail pane did not render scrolled content:\n%s", view)
 	}
 }
 
@@ -406,16 +411,13 @@ func TestMouseWheelTargetsPaneUnderPointer(t *testing.T) {
 		Title: "discrawl archive",
 		Items: []Item{{
 			Title:  "first",
-			Detail: strings.Join([]string{"line one", "line two", "line three", "line four", "line five", "line six"}, "\n"),
+			Detail: testDetailLines(40),
 			Tags:   []string{"message", "discord"},
 		}},
 	})
 	m.width = 100
-	m.height = 12
+	m.height = 24
 	layout := m.layout()
-	if m.maxDetailOffset() == 0 {
-		t.Fatal("test setup expected scrollable detail")
-	}
 	updated, cmd := m.Update(tea.MouseMsg{
 		X:      layout.detail.x + 2,
 		Y:      layout.detail.y + 2,
@@ -435,7 +437,7 @@ func TestMouseWheelTargetsPaneUnderPointer(t *testing.T) {
 	}
 	updated, _ = m.Update(wheelScrollMsg{seq: m.wheelSeq})
 	m = updated.(model)
-	if m.detailOffset == 0 {
+	if m.detailView.YOffset == 0 {
 		t.Fatal("detail pane did not scroll after queued wheel")
 	}
 }

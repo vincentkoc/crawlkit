@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -405,7 +406,7 @@ type model struct {
 	filterMode     bool
 	focus          paneFocus
 	contextOffset  int
-	detailOffset   int
+	detailView     viewport.Model
 	wheelPending   bool
 	wheelFocus     paneFocus
 	wheelDelta     int
@@ -496,6 +497,7 @@ func newModel(opts Options) model {
 		sourceKind:     normalizeSourceKind(opts.SourceKind),
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 		layoutPreset:   layout,
+		detailView:     viewport.New(1, 1),
 	}
 	if m.title == "" {
 		m.title = "archive"
@@ -737,7 +739,7 @@ func (m *model) selectMemberAt(rect rect, x, y int) {
 	}
 	itemIndex := members[memberOffset]
 	m.selectItemIndex(itemIndex)
-	m.detailOffset = 0
+	m.detailView.GotoTop()
 	m.ensureVisible()
 }
 
@@ -747,7 +749,7 @@ func (m *model) selectGroup(groupIndex int) {
 	}
 	m.selectItemIndex(m.groups[groupIndex].Members[0])
 	m.contextOffset = 0
-	m.detailOffset = 0
+	m.detailView.GotoTop()
 	m.ensureVisible()
 }
 
@@ -1092,7 +1094,33 @@ func (m model) renderDetailPane(rect rect) string {
 		return pane("Detail", "", []string{"No row selected."}, rect, focusDetail, m.focus, detailPaneAccent)
 	}
 	lines := m.detailLines(item)
-	return paneScrolled(m.detailPaneTitle(), paneFocusLabel(m.focus == focusDetail), lines, rect, focusDetail, m.focus, detailPaneAccent, m.detailOffset)
+	return m.renderDetailViewport(rect, lines)
+}
+
+func (m model) renderDetailViewport(rect rect, lines []string) string {
+	m.configureDetailViewport(rect, lines)
+	return paneStyle(focusDetail, m.focus, rect.w, rect.h, detailPaneAccent).Render(m.detailView.View())
+}
+
+func (m *model) syncDetailViewport() {
+	item, ok := m.selectedItem()
+	if !ok {
+		return
+	}
+	m.configureDetailViewport(m.layout().detail, m.detailLines(item))
+}
+
+func (m *model) configureDetailViewport(rect rect, lines []string) {
+	title := m.detailPaneTitle()
+	if focus := paneFocusLabel(m.focus == focusDetail); focus != "" {
+		title += "  " + focus
+	}
+	content := append([]string{paneTitle(focusDetail, m.focus, title)}, lines...)
+	m.detailView.Width = paneContentWidth(rect.w)
+	m.detailView.Height = maxInt(1, rect.h-2)
+	m.detailView.MouseWheelEnabled = true
+	m.detailView.MouseWheelDelta = 3
+	m.detailView.SetContent(strings.Join(content, "\n"))
 }
 
 func (m model) renderFooter(width int) string {
@@ -1384,7 +1412,7 @@ func (m *model) selectMemberOffset(offset int) {
 	offset = clampInt(offset, 0, len(members)-1)
 	m.selectItemIndex(members[offset])
 	m.contextOffset = 0
-	m.detailOffset = 0
+	m.detailView.GotoTop()
 	m.ensureVisible()
 }
 
@@ -1393,7 +1421,12 @@ func (m *model) scrollFocused(delta int) {
 	case focusContext:
 		m.moveMember(delta)
 	case focusDetail:
-		m.detailOffset = clampInt(m.detailOffset+delta, 0, m.maxDetailOffset())
+		m.syncDetailViewport()
+		if delta > 0 {
+			m.detailView.LineDown(delta)
+		} else if delta < 0 {
+			m.detailView.LineUp(-delta)
+		}
 	default:
 		m.moveGroup(delta)
 	}
@@ -1447,7 +1480,10 @@ func (m model) focusedPageSize() int {
 	case focusContext:
 		return maxInt(1, rowsViewportHeight(layout.context.h))
 	case focusDetail:
-		return maxInt(1, paneContentHeight(layout.detail.h))
+		if m.detailView.Height > 0 {
+			return maxInt(1, m.detailView.Height)
+		}
+		return maxInt(1, layout.detail.h-2)
 	default:
 		return m.pageSize()
 	}
@@ -1455,15 +1491,6 @@ func (m model) focusedPageSize() int {
 
 func (m model) maxContextOffset() int {
 	return maxInt(0, len(m.currentGroupMembers())-rowsViewportHeight(m.layout().context.h))
-}
-
-func (m model) maxDetailOffset() int {
-	item, ok := m.selectedItem()
-	if !ok {
-		return 0
-	}
-	layout := m.layout()
-	return maxPaneScroll(m.detailLines(item), layout.detail)
 }
 
 func (m *model) applyFilter() {
@@ -2098,14 +2125,6 @@ func flattenedPaneLines(lines []string, width int) []string {
 		body = append(body, wrapLines(line, width)...)
 	}
 	return body
-}
-
-func maxPaneScroll(lines []string, rect rect) int {
-	body := flattenedPaneLines(lines, paneContentWidth(rect.w))
-	if len(body) == 0 {
-		return 0
-	}
-	return maxInt(0, len(body)-paneContentHeight(rect.h))
 }
 
 func paneContentWidth(width int) int {
