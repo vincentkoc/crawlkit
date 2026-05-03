@@ -1045,9 +1045,6 @@ func (m model) renderRowsPane(rect rect) string {
 	height := rowsViewportHeight(rect.h)
 	columns := groupColumns(width, m.sortMode)
 	rows := m.groupTableRows(columns)
-	if m.filterMode {
-		rows = append([]tableRow{messageTableRow(columns, "filter> "+m.query)}, rows...)
-	}
 	if len(m.groups) == 0 {
 		rows = []tableRow{messageTableRow(columns, "no rows match")}
 	}
