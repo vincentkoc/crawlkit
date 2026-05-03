@@ -229,7 +229,7 @@ func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 	m.width = 300
 	m.height = 28
 	view := stripANSI(m.View())
-	for _, want := range []string{"type", "count", "latest", "scope", "group", "kind", "time", "where", "author", "title"} {
+	for _, want := range []string{"kind", "msgs", "latest", "scope", "channel", "time", "where", "author", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("table view missing %q:\n%s", want, view)
 		}
@@ -258,7 +258,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Thread", "type", "count", "latest", "age", "scope", "group", "kind", "time", "where", "author", "title"} {
+	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Thread", "kind", "msgs", "latest", "age", "scope", "channel", "time", "where", "author", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
@@ -309,9 +309,10 @@ func TestCompactWidthKeepsUsefulColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	mediumGroupHeader := groupListHeader(46, sortDefault)
 	mediumGroupLine := groupListLine(group, 46)
-	mediumRows := newModel(Options{Items: []Item{
+	groupModel := newModel(Options{Layout: LayoutChat, Items: []Item{
 		Row{Kind: "message", Container: "github-secure-session-4", Title: "message", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
-	}}).groupTableRows(groupColumns(46, sortDefault))
+	}})
+	mediumRows := groupModel.groupTableRows(groupModel.groupColumns(46))
 	for _, want := range []string{"N", "TIME", "AGE", "GROUP", "05-02", "github-secure"} {
 		if !strings.Contains(mediumGroupHeader+mediumGroupLine, want) {
 			t.Fatalf("medium compact group columns missing %q:\n%s\n%s", want, mediumGroupHeader, mediumGroupLine)

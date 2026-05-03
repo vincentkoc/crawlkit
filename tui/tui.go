@@ -1560,7 +1560,7 @@ func (m model) renderHeader(width int) string {
 func (m model) renderRowsPane(rect rect) string {
 	width := tableViewportWidth(rect)
 	height := rowsViewportHeight(rect.h)
-	columns := groupColumns(width, m.sortMode)
+	columns := m.groupColumns(width)
 	rows := m.groupTableRows(columns)
 	if len(m.groups) == 0 {
 		rows = []tableRow{messageTableRow(columns, "no rows match")}
@@ -2928,16 +2928,19 @@ func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow 
 	return rows
 }
 
-func groupColumns(width int, active sortMode) []tableColumn {
+func (m model) groupColumns(width int) []tableColumn {
 	width = maxInt(24, width)
+	active := m.sortMode
+	countLabel := m.groupCountLabel(width)
+	titleLabel := m.groupTitleLabel()
 	if width < 44 {
 		countW := 3
 		ageW := 4
 		titleW := maxInt(1, width-countW-ageW-2)
 		return []tableColumn{
-			{Key: "count", Title: "n", Width: countW},
+			{Key: "count", Title: countLabel, Width: countW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-			{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+			{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 		}
 	}
 	if width < 68 {
@@ -2948,19 +2951,19 @@ func groupColumns(width int, active sortMode) []tableColumn {
 			kindW := 8
 			titleW := maxInt(1, width-kindW-countW-timeW-ageW-4)
 			return []tableColumn{
-				{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
-				{Key: "count", Title: "n", Width: countW},
-				{Key: "time", Title: activeTimeLabel("time", active), Width: timeW},
+				{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
+				{Key: "count", Title: countLabel, Width: countW},
+				{Key: "time", Title: activeTimeLabel("date", active), Width: timeW},
 				{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-				{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+				{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 			}
 		}
 		titleW := maxInt(1, width-countW-timeW-ageW-3)
 		return []tableColumn{
-			{Key: "count", Title: "n", Width: countW},
-			{Key: "time", Title: activeTimeLabel("time", active), Width: timeW},
+			{Key: "count", Title: countLabel, Width: countW},
+			{Key: "time", Title: activeTimeLabel("date", active), Width: timeW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
-			{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+			{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 		}
 	}
 	kindW := minInt(maxInt(6, width/8), 10)
@@ -2970,13 +2973,37 @@ func groupColumns(width int, active sortMode) []tableColumn {
 	scopeW := minInt(maxInt(8, width/7), 16)
 	titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
 	return []tableColumn{
-		{Key: "kind", Title: activeLabel("type", active == sortKind), Width: kindW},
-		{Key: "count", Title: "count", Width: countW},
+		{Key: "kind", Title: activeLabel("kind", active == sortKind), Width: kindW},
+		{Key: "count", Title: countLabel, Width: countW},
 		{Key: "time", Title: activeTimeLabel("latest", active), Width: timeW},
 		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
 		{Key: "scope", Title: activeLabel("scope", active == sortScope), Width: scopeW},
-		{Key: "title", Title: activeLabel("group", active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
+		{Key: "title", Title: activeLabel(titleLabel, active == sortTitle || active == sortContainer || active == sortAuthor), Width: titleW},
 	}
+}
+
+func (m model) groupCountLabel(width int) string {
+	switch m.layoutPreset {
+	case LayoutChat:
+		if width < 68 {
+			return "msg"
+		}
+		return "msgs"
+	case LayoutDocument:
+		if width < 68 {
+			return "doc"
+		}
+		return "docs"
+	default:
+		if width < 68 {
+			return "row"
+		}
+		return "rows"
+	}
+}
+
+func (m model) groupTitleLabel() string {
+	return groupModeLabel(m.layoutPreset, m.groupMode)
 }
 
 func memberColumns(width int, active sortMode) []tableColumn {
@@ -3754,7 +3781,7 @@ func compactRowListHeader(width int, active sortMode) string {
 }
 
 func (m *model) sortGroupsFromHeader(x, width int) {
-	column := columnAt(groupColumns(width, m.sortMode), x)
+	column := columnAt(m.groupColumns(width), x)
 	switch column.Key {
 	case "kind":
 		m.setSortMode(sortKind)
