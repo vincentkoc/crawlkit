@@ -47,6 +47,7 @@ type wheelScrollMsg struct {
 type Item struct {
 	Title     string            `json:"title"`
 	Subtitle  string            `json:"subtitle,omitempty"`
+	Text      string            `json:"text,omitempty"`
 	Detail    string            `json:"detail,omitempty"`
 	Tags      []string          `json:"tags,omitempty"`
 	Depth     int               `json:"depth,omitempty"`
@@ -201,6 +202,7 @@ func (r Row) ItemForLayout(layout LayoutPreset) Item {
 	return Item{
 		Title:     title,
 		Subtitle:  r.subtitleForLayout(layout),
+		Text:      strings.TrimSpace(r.Text),
 		Detail:    detail,
 		Tags:      tags,
 		Depth:     depth,
@@ -2067,6 +2069,7 @@ func (item Item) searchText() string {
 	parts := []string{
 		item.Title,
 		item.Subtitle,
+		item.Text,
 		item.Detail,
 		item.Source,
 		item.Kind,
@@ -2117,9 +2120,19 @@ func contextLines(item Item, width int) []string {
 }
 
 func (m model) detailLines(item Item) []string {
+	switch m.layoutPreset {
+	case LayoutChat:
+		return m.chatDetailLines(item)
+	case LayoutDocument:
+		return documentDetailLines(item)
+	}
+	return genericDetailLines(item)
+}
+
+func genericDetailLines(item Item) []string {
 	detail := strings.TrimSpace(item.Detail)
 	var lines []string
-	context := detailContextLines(item)
+	context := detailContextLines(item, true)
 	if len(context) > 0 {
 		lines = append(lines, "Context")
 		lines = append(lines, context...)
@@ -2134,19 +2147,130 @@ func (m model) detailLines(item Item) []string {
 	if len(lines) == 0 {
 		lines = append(lines, "", "No detail for this row.")
 	}
-	if m.layoutPreset == LayoutChat {
-		thread := m.threadLines(item)
-		if len(thread) > 0 {
-			lines = append(lines, "", "Thread")
-			lines = append(lines, thread...)
-		}
+	return lines
+}
+
+func (m model) chatDetailLines(item Item) []string {
+	var lines []string
+	if header := chatHeaderLine(item); header != "" {
+		lines = append(lines, header)
+	}
+	if meta := chatMetaLine(item); meta != "" {
+		lines = append(lines, dim(meta))
+	}
+	message := strings.TrimSpace(firstNonEmpty(item.Text, item.Detail, item.Title))
+	if message != "" {
+		lines = append(lines, "", "Message")
+		lines = append(lines, indentWrappedLines(message, 2, 1000)...)
+	}
+	if thread := m.threadLines(item); len(thread) > 0 {
+		lines = append(lines, "", "Thread")
+		lines = append(lines, thread...)
+	}
+	if metadata := detailContextLines(item, false); len(metadata) > 0 {
+		lines = append(lines, "", "Metadata")
+		lines = append(lines, metadata...)
+	}
+	if len(lines) == 0 {
+		return []string{"No detail for this message."}
 	}
 	return lines
 }
 
-func detailContextLines(item Item) []string {
+func documentDetailLines(item Item) []string {
 	var lines []string
-	for _, line := range []string{
+	title := firstNonEmpty(item.Title, item.ID, "Untitled")
+	lines = append(lines, title)
+	if meta := documentMetaLine(item); meta != "" {
+		lines = append(lines, dim(meta))
+	}
+	if url := strings.TrimSpace(item.URL); url != "" {
+		lines = append(lines, "url: "+url)
+	}
+	preview := documentPreview(item)
+	if preview != "" {
+		lines = append(lines, "", "Preview")
+		lines = append(lines, wrapLines(preview, 1000)...)
+	}
+	if metadata := detailContextLines(item, false); len(metadata) > 0 {
+		lines = append(lines, "", "Metadata")
+		lines = append(lines, metadata...)
+	}
+	if len(lines) == 0 {
+		return []string{"No detail for this document."}
+	}
+	return lines
+}
+
+func chatHeaderLine(item Item) string {
+	parts := []string{
+		firstNonEmpty(item.Container, item.Scope),
+		itemAuthor(item),
+		shortTimestamp(firstNonEmpty(item.CreatedAt, item.UpdatedAt)),
+	}
+	header := joinNonEmpty(parts, "  ")
+	if header == "" {
+		return firstNonEmpty(item.Title, item.ID)
+	}
+	return header
+}
+
+func chatMetaLine(item Item) string {
+	parts := []string{
+		fieldLine("id", item.ID),
+		fieldLine("thread", threadKey(item)),
+		fieldLine("kind", itemKind(item)),
+	}
+	return joinNonEmpty(parts, "  ")
+}
+
+func documentMetaLine(item Item) string {
+	parts := []string{
+		itemKind(item),
+		firstNonEmpty(item.Container, item.Scope),
+		shortTimestamp(firstNonEmpty(item.UpdatedAt, item.CreatedAt)),
+	}
+	return joinNonEmpty(parts, "  ")
+}
+
+func documentPreview(item Item) string {
+	if text := strings.TrimSpace(item.Text); text != "" {
+		return text
+	}
+	detail := strings.TrimSpace(item.Detail)
+	if detail == "" || looksLikeFieldDump(detail) {
+		return ""
+	}
+	return detail
+}
+
+func looksLikeFieldDump(value string) bool {
+	lines := compactNonEmpty(strings.Split(value, "\n"))
+	if len(lines) == 0 {
+		return false
+	}
+	fieldLines := 0
+	for _, line := range lines {
+		if strings.Contains(line, "=") || strings.HasPrefix(strings.TrimSpace(line), "url:") || strings.HasPrefix(strings.TrimSpace(line), "url=") {
+			fieldLines++
+		}
+	}
+	return fieldLines == len(lines)
+}
+
+func indentWrappedLines(value string, indent, width int) []string {
+	prefix := strings.Repeat(" ", maxInt(0, indent))
+	raw := wrapLines(value, width)
+	out := make([]string, 0, len(raw))
+	for _, line := range raw {
+		out = append(out, prefix+line)
+	}
+	return out
+}
+
+func detailContextLines(item Item, includeTitle bool) []string {
+	var lines []string
+	fields := []string{
 		fieldLine("container", item.Container),
 		fieldLine("author", item.Author),
 		fieldLine("kind", itemKind(item)),
@@ -2157,8 +2281,11 @@ func detailContextLines(item Item) []string {
 		fieldLine("id", item.ID),
 		fieldLine("parent", item.ParentID),
 		fieldLine("url", item.URL),
-		fieldLine("title", item.Title),
-	} {
+	}
+	if includeTitle {
+		fields = append(fields, fieldLine("title", item.Title))
+	}
+	for _, line := range fields {
 		if line != "" {
 			lines = append(lines, line)
 		}
@@ -2199,9 +2326,11 @@ func (m model) threadLines(selected Item) []string {
 		if author := itemAuthor(item); author != "" {
 			prefix = strings.TrimSpace(prefix + " " + author)
 		}
-		text := firstNonEmpty(item.Detail, item.Title)
+		text := firstNonEmpty(item.Text, item.Detail, item.Title)
 		if prefix != "" {
-			text = prefix + "  " + text
+			lines = append(lines, prefix)
+			lines = append(lines, indentWrappedLines(text, 2, 1000)...)
+			continue
 		}
 		lines = append(lines, text)
 	}
@@ -2232,20 +2361,23 @@ func rowListLine(item Item, width int) string {
 	if item.Depth > 0 {
 		title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
 	}
-	if width < 56 {
+	if width < 68 {
 		return truncateCells(title, width)
 	}
 	kind := rowKind(item)
 	when := rowWhen(item)
+	age := rowAge(item)
 	where := rowWhere(item)
 	author := itemAuthor(item)
 	kindW := minInt(maxInt(5, width/10), 10)
 	whenW := minInt(maxInt(10, width/6), 16)
+	ageW := minInt(maxInt(4, width/16), 7)
 	whereW := minInt(maxInt(10, width/5), 22)
 	authorW := minInt(maxInt(8, width/7), 18)
-	titleW := maxInt(1, width-kindW-whenW-whereW-authorW-4)
+	titleW := maxInt(1, width-kindW-whenW-ageW-whereW-authorW-5)
 	return padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(when, whenW), whenW) + " " +
+		padCells(truncateCells(age, ageW), ageW) + " " +
 		padCells(truncateCells(where, whereW), whereW) + " " +
 		padCells(truncateCells(author, authorW), authorW) + " " +
 		truncateCells(title, titleW)
@@ -2253,34 +2385,38 @@ func rowListLine(item Item, width int) string {
 
 func groupListLine(group itemGroup, width int) string {
 	width = maxInt(width, 1)
-	if width < 56 {
+	if width < 68 {
 		return truncateCells(group.Title, width)
 	}
 	kindW := minInt(maxInt(6, width/8), 10)
 	countW := minInt(maxInt(4, width/12), 7)
 	timeW := minInt(maxInt(12, width/5), 18)
+	ageW := minInt(maxInt(4, width/16), 7)
 	scopeW := minInt(maxInt(8, width/7), 16)
-	titleW := maxInt(1, width-kindW-countW-timeW-scopeW-4)
+	titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
 	return padCells(truncateCells(group.Kind, kindW), kindW) + " " +
 		padCells(fmt.Sprintf("%d", group.Count), countW) + " " +
 		padCells(truncateCells(shortTimestamp(group.Latest), timeW), timeW) + " " +
+		padCells(truncateCells(ageFromTimestamp(group.Latest), ageW), ageW) + " " +
 		padCells(truncateCells(group.Scope, scopeW), scopeW) + " " +
 		truncateCells(group.Title, titleW)
 }
 
 func groupListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width < 56 {
+	if width < 68 {
 		return tagStyle(width).Render(padCells("GROUP", width))
 	}
 	kindW := minInt(maxInt(6, width/8), 10)
 	countW := minInt(maxInt(4, width/12), 7)
 	timeW := minInt(maxInt(12, width/5), 18)
+	ageW := minInt(maxInt(4, width/16), 7)
 	scopeW := minInt(maxInt(8, width/7), 16)
-	titleW := maxInt(1, width-kindW-countW-timeW-scopeW-4)
+	titleW := maxInt(1, width-kindW-countW-timeW-ageW-scopeW-5)
 	kind := "TYPE"
 	count := "COUNT"
 	when := "LATEST"
+	age := "AGE"
 	scope := "SCOPE"
 	title := "GROUP"
 	switch active {
@@ -2296,6 +2432,7 @@ func groupListHeader(width int, active sortMode) string {
 	line := padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(count, countW), countW) + " " +
 		padCells(truncateCells(when, timeW), timeW) + " " +
+		padCells(truncateCells(age, ageW), ageW) + " " +
 		padCells(truncateCells(scope, scopeW), scopeW) + " " +
 		truncateCells(title, titleW)
 	return tagStyle(width).Bold(true).Render(line)
@@ -2303,16 +2440,18 @@ func groupListHeader(width int, active sortMode) string {
 
 func rowListHeader(width int, active sortMode) string {
 	width = maxInt(width, 1)
-	if width < 56 {
+	if width < 68 {
 		return tagStyle(width).Render(padCells("TITLE", width))
 	}
 	kindW := minInt(maxInt(5, width/10), 10)
 	whenW := minInt(maxInt(10, width/6), 16)
+	ageW := minInt(maxInt(4, width/16), 7)
 	whereW := minInt(maxInt(10, width/5), 22)
 	authorW := minInt(maxInt(8, width/7), 18)
-	titleW := maxInt(1, width-kindW-whenW-whereW-authorW-4)
+	titleW := maxInt(1, width-kindW-whenW-ageW-whereW-authorW-5)
 	kind := "KIND"
-	when := "WHEN"
+	when := "TIME"
+	age := "AGE"
 	where := "WHERE"
 	author := "AUTHOR"
 	title := "TITLE"
@@ -2332,6 +2471,7 @@ func rowListHeader(width int, active sortMode) string {
 	}
 	line := padCells(truncateCells(kind, kindW), kindW) + " " +
 		padCells(truncateCells(when, whenW), whenW) + " " +
+		padCells(truncateCells(age, ageW), ageW) + " " +
 		padCells(truncateCells(where, whereW), whereW) + " " +
 		padCells(truncateCells(author, authorW), authorW) + " " +
 		truncateCells(title, titleW)
@@ -2340,12 +2480,13 @@ func rowListHeader(width int, active sortMode) string {
 
 func (m *model) sortRowsFromHeader(x int) {
 	width := paneContentWidth(m.layout().rows.w)
-	if width < 56 {
+	if width < 68 {
 		m.setSortMode(sortTitle)
 		return
 	}
 	kindW := minInt(maxInt(5, width/10), 10)
 	whenW := minInt(maxInt(10, width/6), 16)
+	ageW := minInt(maxInt(4, width/16), 7)
 	whereW := minInt(maxInt(10, width/5), 22)
 	authorW := minInt(maxInt(8, width/7), 18)
 	switch {
@@ -2357,9 +2498,15 @@ func (m *model) sortRowsFromHeader(x int) {
 		} else {
 			m.setSortMode(sortNewest)
 		}
-	case x < kindW+1+whenW+1+whereW:
+	case x < kindW+1+whenW+1+ageW:
+		if m.sortMode == sortNewest {
+			m.setSortMode(sortOldest)
+		} else {
+			m.setSortMode(sortNewest)
+		}
+	case x < kindW+1+whenW+1+ageW+1+whereW:
 		m.setSortMode(sortContainer)
-	case x < kindW+1+whenW+1+whereW+1+authorW:
+	case x < kindW+1+whenW+1+ageW+1+whereW+1+authorW:
 		m.setSortMode(sortAuthor)
 	default:
 		m.setSortMode(sortTitle)
@@ -2398,6 +2545,41 @@ func rowWhen(item Item) string {
 		}
 	}
 	return ""
+}
+
+func rowAge(item Item) string {
+	if t, ok := itemSortTime(item); ok {
+		return compactAge(time.Since(t))
+	}
+	return ""
+}
+
+func ageFromTimestamp(value string) string {
+	t, ok := parseTimestamp(value)
+	if !ok {
+		return ""
+	}
+	return compactAge(time.Since(t))
+}
+
+func compactAge(duration time.Duration) string {
+	if duration < 0 {
+		duration = -duration
+	}
+	switch {
+	case duration < time.Minute:
+		return "now"
+	case duration < time.Hour:
+		return fmt.Sprintf("%dm", int(duration/time.Minute))
+	case duration < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(duration/time.Hour))
+	case duration < 60*24*time.Hour:
+		return fmt.Sprintf("%dd", int(duration/(24*time.Hour)))
+	case duration < 730*24*time.Hour:
+		return fmt.Sprintf("%dmo", int(duration/(30*24*time.Hour)))
+	default:
+		return fmt.Sprintf("%dy", int(duration/(365*24*time.Hour)))
+	}
 }
 
 func rowWhere(item Item) string {

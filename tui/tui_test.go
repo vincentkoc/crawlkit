@@ -115,8 +115,8 @@ func TestRowsPaneUsesCompactTitlesAndKeepsMetadataInContext(t *testing.T) {
 	if !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
 		t.Fatalf("context pane should render grouped messages:\n%s", view)
 	}
-	if !strings.Contains(view, "container=general") || !strings.Contains(view, "author=vincent") {
-		t.Fatalf("detail pane should keep chat metadata:\n%s", view)
+	if !strings.Contains(view, "Message") || !strings.Contains(view, "general") || !strings.Contains(view, "vincent") {
+		t.Fatalf("detail pane should render chat-style message detail:\n%s", view)
 	}
 }
 
@@ -133,6 +133,32 @@ func TestRowsPaneUsesStableColumns(t *testing.T) {
 	}
 	if strings.Contains(line, "vincent  2026") {
 		t.Fatalf("row line should not dump raw subtitle: %q", line)
+	}
+}
+
+func TestChatDetailUsesTranscriptShapeBeforeMetadata(t *testing.T) {
+	m := newModel(Options{
+		Title:  "slacrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "reply message", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.selectItemIndex(1)
+	item, ok := m.selectedItem()
+	if !ok {
+		t.Fatal("missing selected item")
+	}
+	lines := m.detailLines(item)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{"general  bob", "Message", "reply message", "Thread", "alice", "root message", "Metadata", "parent=m1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("chat detail missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Index(joined, "Message") > strings.Index(joined, "Metadata") {
+		t.Fatalf("chat detail should put readable content before metadata:\n%s", joined)
 	}
 }
 
