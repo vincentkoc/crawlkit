@@ -424,6 +424,7 @@ type model struct {
 	layoutPreset   LayoutPreset
 	sortMode       sortMode
 	memberSortMode sortMode
+	groupMode      groupMode
 	compactDetail  bool
 	layoutMode     layoutMode
 	menuOpen       bool
@@ -463,6 +464,7 @@ const (
 	actionStartFilter
 	actionToggleLayout
 	actionToggleDetail
+	actionCycleGroup
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -492,6 +494,16 @@ type layoutMode string
 const (
 	layoutModeColumns    layoutMode = "columns"
 	layoutModeRightStack layoutMode = "right-stack"
+)
+
+type groupMode int
+
+const (
+	groupByDefault groupMode = iota
+	groupByContainer
+	groupByAuthor
+	groupByThread
+	groupByScope
 )
 
 func newModel(opts Options) model {
@@ -687,6 +699,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toggleLayout()
 		case "d":
 			m.toggleDetailMode()
+		case "v":
+			m.cycleGroupMode()
 		case "esc":
 			if m.query != "" {
 				m.query = ""
@@ -866,6 +880,8 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 		m.toggleLayout()
 	case "d":
 		m.toggleDetailMode()
+	case "v":
+		m.cycleGroupMode()
 	}
 	return nil
 }
@@ -885,6 +901,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		{label: "Filter rows...", action: actionStartFilter},
 		{label: "Toggle wide layout", action: actionToggleLayout},
 		{label: detailModeToggleLabel(m.compactDetail), action: actionToggleDetail},
+		{label: groupModeToggleLabel(m.layoutPreset, m.groupMode), action: actionCycleGroup},
 	}
 	if m.query != "" {
 		items = append(items, menuItem{label: "Clear filter", action: actionClearFilter})
@@ -928,6 +945,7 @@ func (m *model) openHelpMenu() {
 		menuSection("Keyboard"),
 		{label: "s: sort focused pane", action: actionClose},
 		{label: "d: toggle detail mode", action: actionClose},
+		{label: "v: cycle group view", action: actionClose},
 		{label: "l: toggle layout", action: actionClose},
 		{label: "/: filter rows", action: actionClose},
 		{label: "j/k or wheel: scroll focused pane", action: actionClose},
@@ -985,6 +1003,9 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 	case actionToggleDetail:
 		m.toggleDetailMode()
 		m.closeMenu()
+	case actionCycleGroup:
+		m.cycleGroupMode()
+		m.closeMenu()
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
 	case actionSortNewest:
@@ -1022,6 +1043,21 @@ func (m *model) toggleLayout() {
 
 func (m *model) toggleDetailMode() {
 	m.compactDetail = !m.compactDetail
+	m.detailView.GotoTop()
+}
+
+func (m *model) cycleGroupMode() {
+	order := groupModeCycle(m.layoutPreset)
+	next := order[0]
+	for index, mode := range order {
+		if mode == m.groupMode {
+			next = order[(index+1)%len(order)]
+			break
+		}
+	}
+	m.groupMode = next
+	m.contextOffset = 0
+	m.applyFilter()
 	m.detailView.GotoTop()
 }
 
@@ -1065,6 +1101,7 @@ func (m model) renderHeader(width int) string {
 	}
 	status += "  sort:" + m.sortMode.Label()
 	status += "  members:" + m.memberSortMode.Label()
+	status += "  group:" + groupModeLabel(m.layoutPreset, m.groupMode)
 	status += "  layout:" + m.layout().mode
 	status += "  detail:" + detailModeLabel(m.compactDetail)
 	line := m.title + "  " + status
@@ -1402,15 +1439,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  d detail  l layout  wheel scroll  / filter  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  s sort  d detail  / filter  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  s sort  v group  d detail  / filter  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab focus click menu s sort / filter ? help q quit"
+	return "Tab focus click menu s sort v group / filter ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -1698,13 +1735,34 @@ func (m model) sortGroupMembers(members []int) {
 func (m model) groupFields(item Item) (key, title, kind, scope string) {
 	switch m.layoutPreset {
 	case LayoutChat:
+		if m.groupMode == groupByAuthor {
+			if author := strings.TrimSpace(itemAuthor(item)); author != "" {
+				return "author:" + author, author, "person", strings.TrimSpace(item.Scope)
+			}
+		}
+		if m.groupMode == groupByThread {
+			if thread := threadKey(item); thread != "" {
+				title := firstNonEmpty(item.Title, thread)
+				return "thread:" + thread, title, "thread", strings.TrimSpace(item.Scope)
+			}
+		}
 		if container := strings.TrimSpace(item.Container); container != "" {
 			return "container:" + container, container, "channel", strings.TrimSpace(item.Scope)
 		}
-		if author := strings.TrimSpace(item.Author); author != "" {
+		if author := strings.TrimSpace(itemAuthor(item)); author != "" {
 			return "author:" + author, author, "person", strings.TrimSpace(item.Scope)
 		}
 	case LayoutDocument:
+		if m.groupMode == groupByContainer {
+			if container := strings.TrimSpace(item.Container); container != "" {
+				return "container:" + container, container, "database", strings.TrimSpace(item.Scope)
+			}
+		}
+		if m.groupMode == groupByScope {
+			if scope := strings.TrimSpace(item.Scope); scope != "" {
+				return "scope:" + scope, scope, "workspace", scope
+			}
+		}
 		if parent := strings.TrimSpace(item.ParentID); parent != "" {
 			return "parent:" + parent, parent, "parent", strings.TrimSpace(item.Scope)
 		}
@@ -2060,9 +2118,23 @@ func (m model) groupPositionLabel() string {
 func (m model) groupPaneTitle() string {
 	switch m.layoutPreset {
 	case LayoutChat:
-		return "Channels / People"
+		switch m.groupMode {
+		case groupByAuthor:
+			return "People"
+		case groupByThread:
+			return "Threads"
+		default:
+			return "Channels"
+		}
 	case LayoutDocument:
-		return "Parents"
+		switch m.groupMode {
+		case groupByContainer:
+			return "Databases"
+		case groupByScope:
+			return "Workspaces"
+		default:
+			return "Parents"
+		}
 	default:
 		return "Groups"
 	}
@@ -2116,6 +2188,56 @@ func detailModeLabel(compact bool) string {
 		return "compact"
 	}
 	return "full"
+}
+
+func groupModeCycle(layout LayoutPreset) []groupMode {
+	switch layout {
+	case LayoutChat:
+		return []groupMode{groupByDefault, groupByAuthor, groupByThread}
+	case LayoutDocument:
+		return []groupMode{groupByDefault, groupByContainer, groupByScope}
+	default:
+		return []groupMode{groupByDefault, groupByContainer, groupByAuthor, groupByScope}
+	}
+}
+
+func groupModeLabel(layout LayoutPreset, mode groupMode) string {
+	switch mode {
+	case groupByContainer:
+		if layout == LayoutDocument {
+			return "database"
+		}
+		return "channel"
+	case groupByAuthor:
+		return "person"
+	case groupByThread:
+		return "thread"
+	case groupByScope:
+		if layout == LayoutDocument {
+			return "workspace"
+		}
+		return "scope"
+	default:
+		if layout == LayoutChat {
+			return "channel"
+		}
+		if layout == LayoutDocument {
+			return "parent"
+		}
+		return "group"
+	}
+}
+
+func groupModeToggleLabel(layout LayoutPreset, mode groupMode) string {
+	order := groupModeCycle(layout)
+	next := order[0]
+	for index, item := range order {
+		if item == mode {
+			next = order[(index+1)%len(order)]
+			break
+		}
+	}
+	return "Group by " + groupModeLabel(layout, next)
 }
 
 func paneTitle(pane, focus paneFocus, suffix string) string {

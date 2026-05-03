@@ -186,7 +186,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels / People", "Messages", "Thread", "type", "count", "latest", "age", "scope", "group", "kind", "time", "where", "author", "title"} {
+	for _, want := range []string{"Channels", "Messages", "Thread", "type", "count", "latest", "age", "scope", "group", "kind", "time", "where", "author", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
@@ -345,8 +345,8 @@ func TestDetailModeToggleUsesCompactReadableDetail(t *testing.T) {
 	if !strings.Contains(compact, "root message") || strings.Contains(compact, "Properties") || strings.Contains(compact, "IDs") {
 		t.Fatalf("compact detail should keep readable content and hide metadata sections:\n%s", compact)
 	}
-	if !strings.Contains(stripANSI(m.View()), "detail:compact") {
-		t.Fatalf("header should expose compact detail mode:\n%s", stripANSI(m.View()))
+	if !strings.Contains(stripANSI(m.View()), "d detail") {
+		t.Fatalf("footer should expose detail toggle:\n%s", stripANSI(m.View()))
 	}
 }
 
@@ -675,10 +675,12 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 		Title: "archive",
 		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
 	})
+	m.width = 160
+	m.height = 34
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
-	view := m.View()
-	for _, want := range []string{"Help", "Right click or m", "s: sort focused pane", "Mouse click: select pane/row"} {
+	view := stripANSI(m.View())
+	for _, want := range []string{"Help", "Right click or m", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}
@@ -717,7 +719,7 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	view := m.View()
-	if !strings.Contains(view, "Channels / People") || !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
+	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "general") {
 		t.Fatalf("chat explorer did not render grouped panes:\n%s", view)
 	}
 	if len(m.groups) != 2 {
@@ -740,6 +742,33 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	}
 }
 
+func TestChatExplorerCyclesGroupViews(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "first", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", Container: "general", Author: "bob", Title: "second", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m3", ParentID: "m1", Container: "general", Author: "alice", Title: "reply", CreatedAt: "2026-05-01T11:30:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "channel" || len(m.groups) != 1 {
+		t.Fatalf("default groups = %s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groups)
+	}
+	m.cycleGroupMode()
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "person" || len(m.groups) != 2 || m.groupPaneTitle() != "People" {
+		t.Fatalf("people groups = %s title=%s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groupPaneTitle(), m.groups)
+	}
+	m.cycleGroupMode()
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "thread" || m.groupPaneTitle() != "Threads" {
+		t.Fatalf("thread groups = %s title=%s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groupPaneTitle(), m.groups)
+	}
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "group:thread") || !strings.Contains(view, "Threads") {
+		t.Fatalf("view should expose thread group mode:\n%s", view)
+	}
+}
+
 func TestDocumentExplorerGroupsParentsAndListsPages(t *testing.T) {
 	m := newModel(Options{
 		Title:  "notcrawl archive",
@@ -758,6 +787,28 @@ func TestDocumentExplorerGroupsParentsAndListsPages(t *testing.T) {
 	}
 	if len(m.groups) != 2 || m.groups[0].Kind != "parent" {
 		t.Fatalf("groups = %#v", m.groups)
+	}
+}
+
+func TestDocumentExplorerCyclesGroupViews(t *testing.T) {
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", ParentID: "folder-a", Scope: "workspace-a", Container: "Roadmap", Title: "Roadmap", UpdatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "database", ParentID: "folder-b", Scope: "workspace-a", Container: "Leads", Title: "Leads", UpdatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "parent" || len(m.groups) != 2 {
+		t.Fatalf("parent groups = %s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groups)
+	}
+	m.cycleGroupMode()
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "database" || m.groupPaneTitle() != "Databases" || len(m.groups) != 2 {
+		t.Fatalf("database groups = %s title=%s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groupPaneTitle(), m.groups)
+	}
+	m.cycleGroupMode()
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "workspace" || m.groupPaneTitle() != "Workspaces" || len(m.groups) != 1 {
+		t.Fatalf("workspace groups = %s title=%s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groupPaneTitle(), m.groups)
 	}
 }
 
