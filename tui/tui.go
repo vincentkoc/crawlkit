@@ -3454,14 +3454,14 @@ func documentDetailLinesForWidth(item Item, width int, compact bool) []string {
 	if meta := documentMetaLine(item); meta != "" {
 		lines = append(lines, dim(meta))
 	}
-	if location := documentLocationLines(item); len(location) > 0 {
-		lines = append(lines, "", dim(tuiRule(width)), bold("Location"))
-		lines = append(lines, location...)
-	}
 	preview := documentPreview(item)
 	if preview != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Preview"))
 		lines = appendLimitedDetailLines(lines, markdownLines(preview, width), detailBodyLimit(compact))
+	}
+	if location := documentLocationLines(item); len(location) > 0 {
+		lines = append(lines, "", dim(tuiRule(width)), bold("Location"))
+		lines = append(lines, location...)
 	}
 	if metadata := documentPropertyLines(item); !compact && len(metadata) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))

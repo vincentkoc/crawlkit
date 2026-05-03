@@ -1696,7 +1696,7 @@ func TestDocumentLayoutPrioritizesURLDetail(t *testing.T) {
 	}
 }
 
-func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
+func TestDocumentDetailUsesHeaderPreviewLocationProperties(t *testing.T) {
 	item := Row{
 		Source:    "notion",
 		Kind:      "page",
@@ -1719,6 +1719,9 @@ func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
 	}
 	if strings.Index(joined, "Preview") > strings.Index(joined, "Properties") {
 		t.Fatalf("document preview should come before properties:\n%s", joined)
+	}
+	if strings.Index(joined, "Preview") > strings.Index(joined, "Location") {
+		t.Fatalf("document preview should come before location metadata:\n%s", joined)
 	}
 }
 
