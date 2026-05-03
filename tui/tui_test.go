@@ -496,7 +496,7 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 		Title:  "discrawl archive",
 		Layout: LayoutChat,
 		Items: []Item{
-			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "# Plan\n- ship columns\n- polish [preview](https://example.com)", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "# Plan\n- ship *columns*\n- polish [preview](https://example.com)", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 			Row{Kind: "message", ID: "m2", ParentID: "m1", Container: "general", Author: "bob", Title: "reply", Text: "> agreed\n`done`", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
@@ -512,7 +512,7 @@ func TestChatDetailRendersMarkdownTranscriptLikeGitcrawl(t *testing.T) {
 			t.Fatalf("markdown chat detail missing %q:\n%s", want, joined)
 		}
 	}
-	if strings.Contains(joined, "# Plan") || strings.Contains(joined, "`done`") {
+	if strings.Contains(joined, "# Plan") || strings.Contains(joined, "`done`") || strings.Contains(joined, "*columns*") {
 		t.Fatalf("chat detail should render markdown-ish text, not raw markdown:\n%s", joined)
 	}
 }

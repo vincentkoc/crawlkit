@@ -4601,6 +4601,7 @@ func renderInlineMarkdown(value string) string {
 	replacer := strings.NewReplacer(
 		"`", "",
 		"**", "",
+		"*", "",
 		"__", "",
 		"~~", "",
 	)
