@@ -1566,7 +1566,7 @@ func TestDocumentDetailUsesHeaderLocationPreviewProperties(t *testing.T) {
 	}.ItemForLayout(LayoutDocument)
 	lines := documentDetailLines(item)
 	joined := strings.Join(lines, "\n")
-	for _, want := range []string{"Launch plan", "Location", "parent=Launch docs", "container=Roadmap DB", "Preview", "Ship the terminal UI cleanup.", "Properties", "updated=2026-05-01 12:00"} {
+	for _, want := range []string{"Launch plan", "Location", "Parent: Launch docs", "Database: Roadmap DB", "Preview", "Ship the terminal UI cleanup.", "Properties", "updated=2026-05-01 12:00"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("document detail missing %q:\n%s", want, joined)
 		}
@@ -1596,6 +1596,23 @@ func TestDocumentDetailRendersMarkdownPreviewLikeGitcrawl(t *testing.T) {
 	}
 	if strings.Contains(joined, "# Checklist") {
 		t.Fatalf("document detail should render markdown-ish headings:\n%s", joined)
+	}
+}
+
+func TestCompactDocumentDetailLimitsLongPreview(t *testing.T) {
+	text := strings.Repeat("preview line\n", 30)
+	item := Row{
+		Source: "notion",
+		Kind:   "page",
+		Title:  "Launch plan",
+		Text:   text,
+	}.ItemForLayout(LayoutDocument)
+	joined := stripANSI(strings.Join(documentDetailLinesForWidth(item, 56, true), "\n"))
+	if !strings.Contains(joined, "Press d for full detail") {
+		t.Fatalf("compact document detail should advertise full mode:\n%s", joined)
+	}
+	if strings.Count(joined, "preview line") > detailBodyLimit(true) {
+		t.Fatalf("compact document detail did not limit preview:\n%s", joined)
 	}
 }
 

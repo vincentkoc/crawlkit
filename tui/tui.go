@@ -3270,10 +3270,10 @@ func (m model) chatDetailLines(item Item, width int) []string {
 	}
 	if thread := m.threadLines(item, width); len(thread) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Thread"))
-		lines = append(lines, thread...)
+		lines = appendLimitedDetailLines(lines, thread, detailBodyLimit(m.compactDetail))
 	} else if message := chatBodyText(item); message != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Message"))
-		lines = append(lines, chatBubbleLines(item, message, true, width)...)
+		lines = appendLimitedDetailLines(lines, chatBubbleLines(item, message, true, width), detailBodyLimit(m.compactDetail))
 	}
 	if !m.compactDetail {
 		if properties := chatPropertyLines(item); len(properties) > 0 {
@@ -3309,7 +3309,7 @@ func documentDetailLinesForWidth(item Item, width int, compact bool) []string {
 	preview := documentPreview(item)
 	if preview != "" {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Preview"))
-		lines = append(lines, markdownLines(preview, width)...)
+		lines = appendLimitedDetailLines(lines, markdownLines(preview, width), detailBodyLimit(compact))
 	}
 	if metadata := documentPropertyLines(item); !compact && len(metadata) > 0 {
 		lines = append(lines, "", dim(tuiRule(width)), bold("Properties"))
@@ -3336,7 +3336,7 @@ func chatHeaderLine(item Item) string {
 
 func chatMetaLine(item Item) string {
 	parts := []string{
-		fieldLine("kind", itemKind(item)),
+		itemKind(item),
 		chatThreadLabel(item),
 		rowAge(item),
 	}
@@ -3380,10 +3380,10 @@ func documentPreview(item Item) string {
 
 func documentLocationLines(item Item) []string {
 	return compactNonEmpty([]string{
-		fieldLine("parent", item.ParentID),
-		fieldLine("container", item.Container),
-		fieldLine("workspace", item.Scope),
-		fieldLine("url", item.URL),
+		labelLine("Parent", item.ParentID),
+		labelLine("Database", item.Container),
+		labelLine("Workspace", item.Scope),
+		labelLine("URL", item.URL),
 	})
 }
 
@@ -3411,6 +3411,31 @@ func looksLikeFieldDump(value string) bool {
 		}
 	}
 	return fieldLines == len(lines)
+}
+
+func labelLine(label, value string) string {
+	label = cleanText(label)
+	value = cleanText(value)
+	if label == "" || value == "" {
+		return ""
+	}
+	return label + ": " + value
+}
+
+func detailBodyLimit(compact bool) int {
+	if compact {
+		return 18
+	}
+	return 240
+}
+
+func appendLimitedDetailLines(out, lines []string, limit int) []string {
+	if limit <= 0 || len(lines) <= limit {
+		return append(out, lines...)
+	}
+	omitted := len(lines) - limit
+	out = append(out, lines[:limit]...)
+	return append(out, dim(fmt.Sprintf("... %d more line(s). Press d for full detail.", omitted)))
 }
 
 func indentWrappedLines(value string, indent, width int) []string {
