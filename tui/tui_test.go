@@ -1322,6 +1322,21 @@ func TestRefreshCurrentStatusUsesGitcrawlSourceLanguage(t *testing.T) {
 	}
 }
 
+func TestContextDoneQuitsModelForSignalCleanup(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
+	m.ctx = ctx
+	cmd := m.contextDoneCmd()
+	if cmd == nil {
+		t.Fatal("context done command missing")
+	}
+	cancel()
+	updated, quit := m.Update(cmd())
+	if _, ok := updated.(model); !ok || quit == nil {
+		t.Fatalf("context cancellation should return quit command, updated=%T quit=%v", updated, quit)
+	}
+}
+
 func TestHelpPaneRendersUniversalControls(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",

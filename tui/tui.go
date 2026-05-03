@@ -81,6 +81,8 @@ type refreshResultMsg struct {
 	manual bool
 }
 
+type contextDoneMsg struct{}
+
 type Item struct {
 	Title     string            `json:"title"`
 	Subtitle  string            `json:"subtitle,omitempty"`
@@ -342,7 +344,6 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer restoreTerminalOutput(output)
 	model := newModel(opts)
-	model.ctx = ctx
 	if width, height, ok := terminalSize(input, output); ok {
 		model.width = width
 		model.height = height
@@ -352,6 +353,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stopSignals()
+	model.ctx = runCtx
 	program := tea.NewProgram(
 		model,
 		tea.WithContext(runCtx),
@@ -736,7 +738,7 @@ type itemGroup struct {
 }
 
 func (m model) Init() tea.Cmd {
-	return m.refreshTickCmd()
+	return tea.Batch(m.refreshTickCmd(), m.contextDoneCmd())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -756,6 +758,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case refreshResultMsg:
 		m.finishRefresh(typed)
 		return m, nil
+	case contextDoneMsg:
+		return m, tea.Quit
 	case tea.MouseMsg:
 		if typed.Action == tea.MouseActionMotion && typed.Button == tea.MouseButtonNone {
 			if m.menuOpen {
@@ -1525,6 +1529,16 @@ func (m model) refreshTickCmd() tea.Cmd {
 	return tea.Tick(m.refreshEvery, func(time.Time) tea.Msg {
 		return refreshTickMsg{}
 	})
+}
+
+func (m model) contextDoneCmd() tea.Cmd {
+	if m.ctx == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		<-m.ctx.Done()
+		return contextDoneMsg{}
+	}
 }
 
 func (m *model) startRefresh(manual bool) tea.Cmd {
