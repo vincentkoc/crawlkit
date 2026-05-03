@@ -17,4 +17,5 @@
 - Add gitcrawl-style pane-specific sorting so group rows and member/message rows keep independent sort modes from headers or the sort menu.
 - Add a gitcrawl-style `d` detail-mode toggle so noisy metadata can collapse behind compact chat/document previews.
 - Add a shared `v` group-view toggle so chat archives can pivot left pane by channel, person, or thread, and document archives by parent, database, or workspace.
+- Add gitcrawl-style selected-row actions for opening URLs and copying URLs, titles, or rendered detail text from the TUI action menu.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

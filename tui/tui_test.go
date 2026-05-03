@@ -16,6 +16,15 @@ func stripANSI(value string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`).ReplaceAllString(value, "")
 }
 
+func menuContainsLabel(items []menuItem, label string) bool {
+	for _, item := range items {
+		if item.label == label {
+			return true
+		}
+	}
+	return false
+}
+
 func testDetailLines(count int) string {
 	lines := make([]string, 0, count)
 	for i := 1; i <= count; i++ {
@@ -552,8 +561,8 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",
 		Items: []Item{
-			Row{Kind: "message", Title: "alpha"}.ItemForLayout(LayoutChat),
-			Row{Kind: "message", Title: "bravo"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "alpha", URL: "https://example.com/alpha"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", Title: "bravo", URL: "https://example.com/bravo"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.width = 100
@@ -573,8 +582,53 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 		t.Fatalf("right click selected = %d, want row under pointer", m.selected)
 	}
 	view := m.View()
-	if !strings.Contains(view, "Focus detail pane") || !strings.Contains(view, "Sort focused pane") {
+	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
+	}
+	for _, want := range []string{"Focus detail pane", "Sort focused pane"} {
+		if !menuContainsLabel(m.menuItems, want) {
+			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
+		}
+	}
+}
+
+func TestActionMenuCopyAndOpenSelectedRow(t *testing.T) {
+	previousCopy := copyText
+	previousOpen := openURL
+	var copied []string
+	var opened []string
+	copyText = func(value string) error {
+		copied = append(copied, value)
+		return nil
+	}
+	openURL = func(value string) error {
+		opened = append(opened, value)
+		return nil
+	}
+	t.Cleanup(func() {
+		copyText = previousCopy
+		openURL = previousOpen
+	})
+
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", Title: "Launch Plan", Text: "Ship the TUI.", URL: "https://example.com/launch"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	m.openSelectedURL()
+	if len(opened) != 1 || opened[0] != "https://example.com/launch" || m.status != "Opened selected URL" {
+		t.Fatalf("open action opened=%v status=%q", opened, m.status)
+	}
+	m.copySelectedURL()
+	m.copySelectedTitle()
+	m.copySelectedDetail()
+	if len(copied) != 3 {
+		t.Fatalf("copied = %#v", copied)
+	}
+	if copied[0] != "https://example.com/launch" || copied[1] != "Launch Plan" || !strings.Contains(copied[2], "Ship the TUI.") {
+		t.Fatalf("copied values = %#v", copied)
 	}
 }
 
@@ -680,7 +734,7 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	view := stripANSI(m.View())
-	for _, want := range []string{"Help", "Right click or m", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Help", "Right click or m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}

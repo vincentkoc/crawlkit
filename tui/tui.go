@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -27,6 +29,11 @@ var (
 	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
 	markdownListRE    = regexp.MustCompile(`^(\s*)([-*+]|\d+[.)])\s+(.+)$`)
 	terminalControlRE = regexp.MustCompile(`\x1b\[[0-9;:]*[A-Za-z]`)
+)
+
+var (
+	openURL  = defaultOpenURL
+	copyText = defaultCopyText
 )
 
 const (
@@ -426,6 +433,7 @@ type model struct {
 	memberSortMode sortMode
 	groupMode      groupMode
 	compactDetail  bool
+	status         string
 	layoutMode     layoutMode
 	menuOpen       bool
 	menuTitle      string
@@ -465,6 +473,10 @@ const (
 	actionToggleLayout
 	actionToggleDetail
 	actionCycleGroup
+	actionOpenURL
+	actionCopyURL
+	actionCopyTitle
+	actionCopyDetail
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -695,6 +707,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openActionMenu()
 		case "?":
 			m.openHelpMenu()
+		case "o":
+			m.openSelectedURL()
+		case "c":
+			m.copySelectedURL()
 		case "l":
 			m.toggleLayout()
 		case "d":
@@ -891,7 +907,21 @@ func (m *model) openActionMenu() {
 }
 
 func (m *model) openActionMenuFor(context paneFocus) {
+	selectedItems := []menuItem{
+		{label: "Copy selected detail", action: actionCopyDetail},
+		{label: "Copy selected title", action: actionCopyTitle},
+	}
+	if item, ok := m.selectedItem(); ok && strings.TrimSpace(item.URL) != "" {
+		selectedItems = append([]menuItem{
+			{label: "Open selected URL", action: actionOpenURL},
+			{label: "Copy selected URL", action: actionCopyURL},
+		}, selectedItems...)
+	}
 	items := []menuItem{
+		menuSection("Selected"),
+	}
+	items = append(items, selectedItems...)
+	items = append(items, []menuItem{
 		menuSection("Pane"),
 		{label: "Focus rows pane", action: actionFocusRows},
 		{label: "Focus context pane", action: actionFocusContext},
@@ -902,7 +932,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		{label: "Toggle wide layout", action: actionToggleLayout},
 		{label: detailModeToggleLabel(m.compactDetail), action: actionToggleDetail},
 		{label: groupModeToggleLabel(m.layoutPreset, m.groupMode), action: actionCycleGroup},
-	}
+	}...)
 	if m.query != "" {
 		items = append(items, menuItem{label: "Clear filter", action: actionClearFilter})
 	}
@@ -943,6 +973,8 @@ func (m *model) openHelpMenu() {
 		{label: "Right click or m: floating actions", action: actionClose},
 		{label: "Click row header: sort", action: actionClose},
 		menuSection("Keyboard"),
+		{label: "o: open selected URL", action: actionClose},
+		{label: "c: copy selected URL", action: actionClose},
 		{label: "s: sort focused pane", action: actionClose},
 		{label: "d: toggle detail mode", action: actionClose},
 		{label: "v: cycle group view", action: actionClose},
@@ -1006,6 +1038,18 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 	case actionCycleGroup:
 		m.cycleGroupMode()
 		m.closeMenu()
+	case actionOpenURL:
+		m.openSelectedURL()
+		m.closeMenu()
+	case actionCopyURL:
+		m.copySelectedURL()
+		m.closeMenu()
+	case actionCopyTitle:
+		m.copySelectedTitle()
+		m.closeMenu()
+	case actionCopyDetail:
+		m.copySelectedDetail()
+		m.closeMenu()
 	case actionSortDefault:
 		m.setPaneSortMode(sortDefault)
 	case actionSortNewest:
@@ -1044,6 +1088,7 @@ func (m *model) toggleLayout() {
 func (m *model) toggleDetailMode() {
 	m.compactDetail = !m.compactDetail
 	m.detailView.GotoTop()
+	m.status = "Detail mode: " + detailModeLabel(m.compactDetail)
 }
 
 func (m *model) cycleGroupMode() {
@@ -1059,6 +1104,63 @@ func (m *model) cycleGroupMode() {
 	m.contextOffset = 0
 	m.applyFilter()
 	m.detailView.GotoTop()
+	m.status = "Group view: " + groupModeLabel(m.layoutPreset, m.groupMode)
+}
+
+func (m *model) openSelectedURL() {
+	item, ok := m.selectedItem()
+	if !ok || strings.TrimSpace(item.URL) == "" {
+		m.status = "No URL for selected row"
+		return
+	}
+	if err := openURL(strings.TrimSpace(item.URL)); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Opened selected URL"
+}
+
+func (m *model) copySelectedURL() {
+	item, ok := m.selectedItem()
+	if !ok || strings.TrimSpace(item.URL) == "" {
+		m.status = "No URL for selected row"
+		return
+	}
+	if err := copyText(strings.TrimSpace(item.URL)); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied selected URL"
+}
+
+func (m *model) copySelectedTitle() {
+	item, ok := m.selectedItem()
+	if !ok || strings.TrimSpace(item.Title) == "" {
+		m.status = "No title for selected row"
+		return
+	}
+	if err := copyText(strings.TrimSpace(item.Title)); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied selected title"
+}
+
+func (m *model) copySelectedDetail() {
+	item, ok := m.selectedItem()
+	if !ok {
+		m.status = "No selected row"
+		return
+	}
+	text := strings.TrimSpace(stripTerminalControls(strings.Join(m.detailLinesForWidth(item, 100), "\n")))
+	if text == "" {
+		text = strings.TrimSpace(item.Title)
+	}
+	if err := copyText(text); err != nil {
+		m.status = err.Error()
+		return
+	}
+	m.status = "Copied selected detail"
 }
 
 func (m model) View() string {
@@ -1196,7 +1298,7 @@ func (m *model) configureDetailViewport(rect rect, lines []string) {
 }
 
 func (m model) renderFooter(width int) string {
-	line := "Ready"
+	line := firstNonEmpty(m.status, "Ready")
 	if m.filterMode {
 		line = "Filtering"
 	} else if m.menuOpen {
@@ -1439,15 +1541,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  m actions  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  s sort  v group  d detail  / filter  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  o open  c copy  s sort  v group  d detail  / filter  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab focus click menu s sort v group / filter ? help q quit"
+	return "Tab panes click menu o open c copy s sort v group d detail / filter ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -3475,6 +3577,51 @@ func bold(value string) string {
 
 func dim(value string) string {
 	return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveMutedFG)).Render(value)
+}
+
+func defaultOpenURL(url string) error {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return fmt.Errorf("no URL to open")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("open URL: %w", err)
+	}
+	return nil
+}
+
+func defaultCopyText(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("nothing to copy")
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		if _, err := exec.LookPath("wl-copy"); err == nil {
+			cmd = exec.Command("wl-copy")
+		} else {
+			cmd = exec.Command("xclip", "-selection", "clipboard")
+		}
+	}
+	cmd.Stdin = strings.NewReader(value)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("copy text: %w", err)
+	}
+	return nil
 }
 
 func tuiRule(width int) string {
