@@ -31,4 +31,5 @@
 - Align shared TUI pane accents, header, footer, and selected-row colors with the current `gitcrawl` terminal browser palette.
 - Match `gitcrawl` help behavior by rendering `?` help inside the detail pane instead of replacing the screen with a menu.
 - Keep medium-width group panes focused on count/date/age/name instead of repeating the group kind on every row.
+- Bring shared TUI detail and sort behavior closer to `gitcrawl`: archives open newest-first, group count headers sort like `cnt*`, selected chat messages render before surrounding conversation context, document previews appear before metadata, and detail fields use `key: value` labels.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
