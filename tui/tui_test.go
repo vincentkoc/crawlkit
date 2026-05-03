@@ -718,10 +718,39 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") || !strings.Contains(view, "Links") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
 	}
-	for _, want := range []string{"Open first body link", "Focus detail pane", "Sort focused pane", "Jump to row..."} {
+	for _, want := range []string{"Open body link...", "Copy body link...", "Focus detail pane", "Sort focused pane", "Jump to row..."} {
 		if !menuContainsLabel(m.menuItems, want) {
 			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
 		}
+	}
+}
+
+func TestActionMenuUsesGitcrawlStyleLinkPicker(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{
+			Row{Kind: "message", Title: "alpha", Text: "see https://example.com/a and https://example.com/b"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 100
+	m.height = 16
+	m.openActionMenuFor(focusRows)
+
+	if !menuContainsLabel(m.menuItems, "Open body link...") {
+		t.Fatalf("action menu missing link picker: %#v", m.menuItems)
+	}
+	m.openReferenceLinkMenu("open")
+	if m.menuTitle != "Open Link" {
+		t.Fatalf("menu title = %q, want Open Link", m.menuTitle)
+	}
+	if len(m.menuItems) < 3 {
+		t.Fatalf("link menu items = %#v", m.menuItems)
+	}
+	if m.menuItems[0].value != "https://example.com/a" || m.menuItems[1].value != "https://example.com/b" {
+		t.Fatalf("link menu values = %#v", m.menuItems)
+	}
+	if !menuContainsLabel(m.menuItems, "Back to actions") {
+		t.Fatalf("link menu missing back action: %#v", m.menuItems)
 	}
 }
 

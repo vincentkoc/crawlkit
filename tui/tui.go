@@ -539,9 +539,14 @@ const (
 	actionCopyURL
 	actionCopyTitle
 	actionCopyDetail
+	actionOpenLinkMenu
+	actionCopyLinkMenu
+	actionOpenPickedLink
+	actionCopyPickedLink
 	actionOpenFirstLink
 	actionCopyFirstLink
 	actionCopyAllLinks
+	actionBackToActions
 	actionQuit
 	actionSortDefault
 	actionSortNewest
@@ -556,6 +561,7 @@ const (
 type menuItem struct {
 	label  string
 	action menuAction
+	value  string
 }
 
 func (item menuItem) selectable() bool {
@@ -969,7 +975,7 @@ func (m *model) handleMenuMouse(msg tea.MouseMsg) {
 	}
 	m.menuIndex = index
 	m.keepMenuVisible()
-	_ = m.runMenuAction(m.menuItems[m.menuIndex].action)
+	_ = m.runMenuItem(m.menuItems[m.menuIndex])
 }
 
 func (m model) menuIndexAtMouse(x, y int) (int, bool) {
@@ -988,7 +994,7 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 	page := maxInt(1, m.menuVisibleCount())
 	if index, ok := visibleMenuShortcutIndex(key.String(), m.menuItems, m.menuOff, page); ok {
 		m.menuIndex = index
-		return m.runMenuAction(m.menuItems[m.menuIndex].action)
+		return m.runMenuItem(m.menuItems[m.menuIndex])
 	}
 	switch key.String() {
 	case "ctrl+c":
@@ -1017,7 +1023,11 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 		m.keepMenuVisible()
 	case "enter", " ":
 		if len(m.menuItems) > 0 {
-			return m.runMenuAction(m.menuItems[m.menuIndex].action)
+			return m.runMenuItem(m.menuItems[m.menuIndex])
+		}
+	case "b":
+		if m.menuTitle == "Open Link" || m.menuTitle == "Copy Link" {
+			m.openActionMenuFor(m.menuContext)
 		}
 	case "s":
 		m.openSortMenuFor(m.focus)
@@ -1059,8 +1069,8 @@ func (m *model) openActionMenuFor(context paneFocus) {
 	if links := m.selectedReferenceLinks(); len(links) > 0 {
 		items = append(items,
 			menuSection("Links"),
-			menuItem{label: "Open first body link", action: actionOpenFirstLink},
-			menuItem{label: "Copy first body link", action: actionCopyFirstLink},
+			menuItem{label: "Open body link...", action: actionOpenLinkMenu},
+			menuItem{label: "Copy body link...", action: actionCopyLinkMenu},
 		)
 		if len(links) > 1 {
 			items = append(items, menuItem{label: "Copy all body links", action: actionCopyAllLinks})
@@ -1133,6 +1143,31 @@ func (m *model) openHelpMenu() {
 	})
 }
 
+func (m *model) openReferenceLinkMenu(mode string) {
+	links := m.selectedReferenceLinks()
+	if len(links) == 0 {
+		m.status = "No body links found"
+		return
+	}
+	title := "Copy Link"
+	action := actionCopyPickedLink
+	if mode == "open" {
+		title = "Open Link"
+		action = actionOpenPickedLink
+	}
+	items := make([]menuItem, 0, len(links)+1)
+	for index, link := range links {
+		items = append(items, menuItem{
+			label:  formatLinkChoiceLabel(link, index),
+			action: action,
+			value:  link,
+		})
+	}
+	items = append(items, menuItem{label: "Back to actions", action: actionBackToActions})
+	m.openMenu(title, items)
+	m.status = title
+}
+
 func (m *model) openMenu(title string, items []menuItem) {
 	m.menuOpen = true
 	m.menuTitle = title
@@ -1156,7 +1191,11 @@ func (m *model) closeMenu() {
 }
 
 func (m *model) runMenuAction(action menuAction) tea.Cmd {
-	switch action {
+	return m.runMenuItem(menuItem{action: action})
+}
+
+func (m *model) runMenuItem(item menuItem) tea.Cmd {
+	switch item.action {
 	case actionClose:
 		m.closeMenu()
 	case actionFocusRows:
@@ -1172,6 +1211,36 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 		m.openSortMenuFor(m.menuContext)
 	case actionHelpMenu:
 		m.openHelpMenu()
+	case actionOpenLinkMenu:
+		m.openReferenceLinkMenu("open")
+	case actionCopyLinkMenu:
+		m.openReferenceLinkMenu("copy")
+	case actionOpenPickedLink:
+		if strings.TrimSpace(item.value) == "" {
+			m.status = "No body link found"
+			m.closeMenu()
+			return nil
+		}
+		if err := openURL(item.value); err != nil {
+			m.status = err.Error()
+		} else {
+			m.status = "Opened " + item.value
+		}
+		m.closeMenu()
+	case actionCopyPickedLink:
+		if strings.TrimSpace(item.value) == "" {
+			m.status = "No body link found"
+			m.closeMenu()
+			return nil
+		}
+		if err := copyText(item.value); err != nil {
+			m.status = err.Error()
+		} else {
+			m.status = "Copied body link"
+		}
+		m.closeMenu()
+	case actionBackToActions:
+		m.openActionMenuFor(m.menuContext)
 	case actionClearFilter:
 		m.query = ""
 		m.applyFilter()
@@ -1423,6 +1492,10 @@ func (m model) selectedReferenceLinks() []string {
 		return nil
 	}
 	return itemReferenceLinks(item)
+}
+
+func formatLinkChoiceLabel(url string, index int) string {
+	return fmt.Sprintf("%2d  %s", index+1, url)
 }
 
 func (m model) View() string {
