@@ -1327,6 +1327,22 @@ func TestLayoutToggleUsesRightStackMode(t *testing.T) {
 	}
 }
 
+func TestWideTmuxPanesPreferThreeColumns(t *testing.T) {
+	m := newModel(Options{
+		Title: "archive",
+		Items: []Item{{Title: "alpha", Tags: []string{"page"}}},
+	})
+	m.width = 122
+	m.height = 34
+	layout := m.layout()
+	if layout.mode != string(layoutModeColumns) || layout.stacked {
+		t.Fatalf("layout = %#v, want three columns", layout)
+	}
+	if layout.rows.h != layout.context.h || layout.context.h != layout.detail.h {
+		t.Fatalf("panes should share height in column mode: %#v", layout)
+	}
+}
+
 func TestRightClickPlacesFloatingMenu(t *testing.T) {
 	m := newModel(Options{
 		Title: "archive",

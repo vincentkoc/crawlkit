@@ -2393,7 +2393,7 @@ func (m model) layout() archiveLayout {
 		height = 24
 	}
 	bodyH := maxInt(1, height-3)
-	if width >= 140 {
+	if width >= 120 {
 		if m.layoutMode == layoutModeRightStack {
 			rowsW := maxInt(56, width*44/100)
 			rightW := width - rowsW
