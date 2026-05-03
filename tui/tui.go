@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -365,6 +366,14 @@ func fieldLine(key, value string) string {
 	return key + "=" + value
 }
 
+func parsePositiveInt(value string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("positive integer required")
+	}
+	return n, nil
+}
+
 func cleanStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -430,7 +439,9 @@ type model struct {
 	height         int
 	query          string
 	savedQuery     string
+	jumpQuery      string
 	filterMode     bool
+	jumpMode       bool
 	focus          paneFocus
 	contextOffset  int
 	detailView     viewport.Model
@@ -487,6 +498,7 @@ const (
 	actionHelpMenu
 	actionClearFilter
 	actionStartFilter
+	actionStartJump
 	actionToggleLayout
 	actionToggleDetail
 	actionCycleGroup
@@ -672,6 +684,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.jumpMode {
+			switch typed.String() {
+			case "ctrl+c", "ctrl+d", "q":
+				return m, tea.Quit
+			case "enter":
+				m.finishJump()
+			case "esc":
+				m.jumpMode = false
+				m.jumpQuery = ""
+				m.status = "Jump canceled"
+			case "backspace":
+				if len(m.jumpQuery) > 0 {
+					m.jumpQuery = m.jumpQuery[:len(m.jumpQuery)-1]
+				}
+			default:
+				for _, r := range typed.Runes {
+					if r >= '0' && r <= '9' {
+						m.jumpQuery += string(r)
+					}
+				}
+			}
+			return m, nil
+		}
 		switch typed.String() {
 		case "ctrl+c", "ctrl+d", "q":
 			return m, tea.Quit
@@ -727,6 +762,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "/", "f":
 			m.startFilter()
+		case "#":
+			m.startJump()
 		case "s":
 			m.openSortMenuFor(m.focus)
 		case "a", "m":
@@ -955,6 +992,8 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 		m.openHelpMenu()
 	case "/":
 		m.startFilter()
+	case "#":
+		m.startJump()
 	case "l":
 		m.toggleLayout()
 	case "d":
@@ -1002,6 +1041,7 @@ func (m *model) openActionMenuFor(context paneFocus) {
 		menuSection("View"),
 		{label: "Sort focused pane", action: actionSortMenu},
 		{label: "Filter rows...", action: actionStartFilter},
+		{label: "Jump to row...", action: actionStartJump},
 		{label: "Toggle wide layout", action: actionToggleLayout},
 		{label: detailModeToggleLabel(m.compactDetail), action: actionToggleDetail},
 		{label: groupModeToggleLabel(m.layoutPreset, m.groupMode), action: actionCycleGroup},
@@ -1053,6 +1093,7 @@ func (m *model) openHelpMenu() {
 		{label: "v: cycle group view", action: actionClose},
 		{label: "l: toggle layout", action: actionClose},
 		{label: "/: filter rows", action: actionClose},
+		{label: "#: jump to row", action: actionClose},
 		{label: "j/k or wheel: scroll focused pane", action: actionClose},
 		{label: "enter: detail pane", action: actionClose},
 		{label: "q: quit", action: actionQuit},
@@ -1066,6 +1107,8 @@ func (m *model) openMenu(title string, items []menuItem) {
 	m.menuIndex = m.firstSelectableMenuIndex()
 	m.menuOff = 0
 	m.filterMode = false
+	m.jumpMode = false
+	m.jumpQuery = ""
 	m.keepMenuVisible()
 }
 
@@ -1102,6 +1145,8 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 		m.closeMenu()
 	case actionStartFilter:
 		m.startFilter()
+	case actionStartJump:
+		m.startJump()
 	case actionToggleLayout:
 		m.toggleLayout()
 		m.closeMenu()
@@ -1157,7 +1202,53 @@ func (m *model) runMenuAction(action menuAction) tea.Cmd {
 func (m *model) startFilter() {
 	m.closeMenu()
 	m.savedQuery = m.query
+	m.jumpMode = false
+	m.jumpQuery = ""
 	m.filterMode = true
+}
+
+func (m *model) startJump() {
+	m.closeMenu()
+	m.filterMode = false
+	m.jumpMode = true
+	m.jumpQuery = ""
+}
+
+func (m *model) finishJump() {
+	target, err := parsePositiveInt(m.jumpQuery)
+	if err != nil {
+		m.status = "Jump expects a row number"
+		return
+	}
+	switch m.focus {
+	case focusContext:
+		members := m.currentGroupMembers()
+		if len(members) == 0 {
+			m.status = "No messages to jump"
+			break
+		}
+		target = clampInt(target, 1, len(members))
+		m.selectMemberOffset(target - 1)
+		m.status = fmt.Sprintf("Jumped to message %d", target)
+	case focusDetail:
+		if len(m.filtered) == 0 {
+			m.status = "No rows to jump"
+		} else {
+			target = clampInt(target, 1, len(m.filtered))
+			m.selectItemOffset(target - 1)
+			m.status = fmt.Sprintf("Jumped to row %d", target)
+		}
+	default:
+		if len(m.groups) == 0 {
+			m.status = "No groups to jump"
+			break
+		}
+		target = clampInt(target, 1, len(m.groups))
+		m.selectGroup(target - 1)
+		m.status = fmt.Sprintf("Jumped to group %d", target)
+	}
+	m.jumpMode = false
+	m.jumpQuery = ""
 }
 
 func (m *model) toggleLayout() {
@@ -1347,6 +1438,8 @@ func (m model) renderHeader(width int) string {
 	line := m.title + "  " + status
 	if m.filterMode {
 		line += "  filter> " + m.query
+	} else if m.jumpMode {
+		line += "  jump> " + m.jumpQuery
 	} else if m.menuOpen {
 		line += "  menu> " + m.menuTitle
 	}
@@ -1439,6 +1532,8 @@ func (m model) renderFooter(width int) string {
 	line := firstNonEmpty(m.status, "Ready")
 	if m.filterMode {
 		line = "Filtering"
+	} else if m.jumpMode {
+		line = "Jump: " + m.jumpQuery
 	} else if m.menuOpen {
 		line = "Menu"
 	}
@@ -1692,15 +1787,15 @@ func (m *model) keepMenuVisible() {
 }
 
 func footerControls(width int) string {
-	full := "Tab focus  click select  header sort  right-click menu  a/m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  ? help  q quit"
+	full := "Tab focus  click select  header sort  right-click menu  a/m actions  o open  c copy  s sort  v group  d detail  l layout  wheel scroll  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(full) <= maxInt(1, width-2) {
 		return full
 	}
-	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  v group  d detail  / filter  ? help  q quit"
+	compact := "Tab focus  click select  right-click menu  a actions  o open  c copy  s sort  v group  d detail  / filter  # jump  ? help  q quit"
 	if lipgloss.Width(compact) <= maxInt(1, width-2) {
 		return compact
 	}
-	return "Tab panes click menu a actions o open c copy s sort v group d detail / filter ? help q quit"
+	return "Tab panes click menu a actions o open c copy s sort v group d detail / filter # jump ? help q quit"
 }
 
 func (m model) footerLocation() string {
@@ -1737,6 +1832,15 @@ func (m *model) selectMemberOffset(offset int) {
 	offset = clampInt(offset, 0, len(members)-1)
 	m.selectItemIndex(members[offset])
 	m.contextOffset = 0
+	m.detailView.GotoTop()
+	m.ensureVisible()
+}
+
+func (m *model) selectItemOffset(offset int) {
+	if len(m.filtered) == 0 {
+		return
+	}
+	m.selected = clampInt(offset, 0, len(m.filtered)-1)
 	m.detailView.GotoTop()
 	m.ensureVisible()
 }

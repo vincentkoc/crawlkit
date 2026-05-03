@@ -691,10 +691,48 @@ func TestRightClickOpensSharedActionMenu(t *testing.T) {
 	if !strings.Contains(view, "Open selected URL") || !strings.Contains(view, "Copy selected detail") || !strings.Contains(view, "Links") {
 		t.Fatalf("action menu missing expected commands:\n%s", view)
 	}
-	for _, want := range []string{"Open first body link", "Focus detail pane", "Sort focused pane"} {
+	for _, want := range []string{"Open first body link", "Focus detail pane", "Sort focused pane", "Jump to row..."} {
 		if !menuContainsLabel(m.menuItems, want) {
 			t.Fatalf("action menu items missing %q: %#v", want, m.menuItems)
 		}
+	}
+}
+
+func TestJumpModeSelectsFocusedPaneRows(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Title: "first"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", Container: "general", Title: "second"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m3", Container: "random", Title: "third"}.ItemForLayout(LayoutChat),
+		},
+	})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'#'}})
+	m = updated.(model)
+	if !m.jumpMode {
+		t.Fatal("jump mode did not start")
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	item, ok := m.selectedItem()
+	if !ok || item.Title != "third" {
+		t.Fatalf("group jump selected %#v ok=%v", item, ok)
+	}
+
+	m.focus = focusContext
+	m.selectGroup(0)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'#'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updated.(model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(model)
+	item, ok = m.selectedItem()
+	if !ok || item.Title != "second" {
+		t.Fatalf("message jump selected %#v ok=%v", item, ok)
 	}
 }
 
@@ -938,7 +976,7 @@ func TestHelpMenuRendersUniversalControls(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	m = updated.(model)
 	view := stripANSI(m.View())
-	for _, want := range []string{"Help", "Right click or a/m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "Mouse click: select pane/row"} {
+	for _, want := range []string{"Help", "Right click or a/m", "o: open selected URL", "c: copy selected URL", "s: sort focused pane", "v: cycle group view", "#: jump to row", "Mouse click: select pane/row"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("help menu missing %q:\n%s", want, view)
 		}
