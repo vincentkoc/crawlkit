@@ -33,6 +33,19 @@ func testDetailLines(count int) string {
 	return strings.Join(lines, "\n")
 }
 
+func TestRestoreTerminalOutputDisablesInteractiveModes(t *testing.T) {
+	var output bytes.Buffer
+
+	restoreTerminalOutput(&output)
+
+	got := output.String()
+	for _, want := range []string{"\x1b[?25h", "\x1b[?1000l", "\x1b[?1002l", "\x1b[?1003l", "\x1b[?1006l", "\x1b[?1049l"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("restore sequence missing %q in %q", want, got)
+		}
+	}
+}
+
 func TestBrowseJSONUsesUniversalRows(t *testing.T) {
 	var out bytes.Buffer
 	rows := []Row{{

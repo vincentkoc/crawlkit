@@ -27,6 +27,8 @@ import (
 
 var ErrNotTerminal = errors.New("terminal UI requires an interactive terminal")
 
+const terminalRestoreSequence = "\x1b[0m\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1049l"
+
 var (
 	markdownHeadingRE = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	markdownLinkRE    = regexp.MustCompile(`\[([^\]]+)\]\((https?://[^)\s]+)\)`)
@@ -288,13 +290,14 @@ func Run(ctx context.Context, opts Options) error {
 	if !ok || !isatty.IsTerminal(output.Fd()) {
 		return ErrNotTerminal
 	}
+	defer restoreTerminalOutput(output)
 	model := newModel(opts)
 	if width, height, ok := terminalSize(input, output); ok {
 		model.width = width
 		model.height = height
 		model.ensureVisible()
 	}
-	runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	runCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 	defer stopSignals()
 	program := tea.NewProgram(
 		model,
@@ -306,6 +309,13 @@ func Run(ctx context.Context, opts Options) error {
 	)
 	_, err := program.Run()
 	return err
+}
+
+func restoreTerminalOutput(output io.Writer) {
+	if output == nil {
+		return
+	}
+	_, _ = io.WriteString(output, terminalRestoreSequence)
 }
 
 func inferLayout(rows []Row) LayoutPreset {
