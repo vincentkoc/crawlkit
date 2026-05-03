@@ -614,7 +614,19 @@ func newModel(opts Options) model {
 		m.title = "archive"
 	}
 	m.applyFilter()
+	m.applyInitialGroupMode()
 	return m
+}
+
+func (m *model) applyInitialGroupMode() {
+	if m.layoutPreset != LayoutChat || m.groupMode != groupByDefault || len(m.groups) > 1 {
+		return
+	}
+	if distinctContainers(m.items, m.filtered) > 1 || distinctAuthors(m.items, m.filtered) <= 1 {
+		return
+	}
+	m.groupMode = groupByAuthor
+	m.applyFilter()
 }
 
 type paneFocus int
@@ -3238,6 +3250,36 @@ func compactNonEmpty(lines []string) []string {
 	return out
 }
 
+func distinctContainers(items []Item, indexes []int) int {
+	seen := map[string]struct{}{}
+	for _, index := range indexes {
+		if index < 0 || index >= len(items) {
+			continue
+		}
+		value := strings.TrimSpace(items[index].Container)
+		if value == "" {
+			continue
+		}
+		seen[strings.ToLower(value)] = struct{}{}
+	}
+	return len(seen)
+}
+
+func distinctAuthors(items []Item, indexes []int) int {
+	seen := map[string]struct{}{}
+	for _, index := range indexes {
+		if index < 0 || index >= len(items) {
+			continue
+		}
+		value := strings.TrimSpace(itemAuthor(items[index]))
+		if value == "" {
+			continue
+		}
+		seen[strings.ToLower(value)] = struct{}{}
+	}
+	return len(seen)
+}
+
 func (item Item) searchText() string {
 	parts := []string{
 		item.Title,
@@ -3584,14 +3626,11 @@ func (m model) threadLines(selected Item, width int) []string {
 	}
 	var lines []string
 	count := 0
-	for _, itemIndex := range m.currentGroupMembers() {
+	for _, itemIndex := range m.chatThreadIndexes(selected) {
 		if itemIndex < 0 || itemIndex >= len(m.items) {
 			continue
 		}
 		item := m.items[itemIndex]
-		if threadKey(item) != key {
-			continue
-		}
 		count++
 		text := chatBodyText(item)
 		lines = append(lines, chatBubbleLines(item, text, item.ID == selected.ID, width)...)
@@ -3603,7 +3642,7 @@ func (m model) threadLines(selected Item, width int) []string {
 }
 
 func (m model) conversationLines(selected Item, width int) []string {
-	members := m.currentGroupMembers()
+	members := m.chatConversationIndexes(selected)
 	if len(members) <= 1 {
 		return nil
 	}
@@ -3632,6 +3671,50 @@ func (m model) conversationLines(selected Item, width int) []string {
 		return nil
 	}
 	return lines
+}
+
+func (m model) chatThreadIndexes(selected Item) []int {
+	key := threadKey(selected)
+	if key == "" {
+		return nil
+	}
+	indexes := make([]int, 0)
+	for itemIndex, item := range m.items {
+		if threadKey(item) == key {
+			indexes = append(indexes, itemIndex)
+		}
+	}
+	sortChatIndexesByTime(m.items, indexes)
+	return indexes
+}
+
+func (m model) chatConversationIndexes(selected Item) []int {
+	indexes := make([]int, 0)
+	selectedContainer := strings.TrimSpace(selected.Container)
+	selectedScope := strings.TrimSpace(selected.Scope)
+	for itemIndex, item := range m.items {
+		if selectedContainer != "" {
+			if strings.TrimSpace(item.Container) != selectedContainer {
+				continue
+			}
+		} else if selectedScope != "" && strings.TrimSpace(item.Scope) != selectedScope {
+			continue
+		}
+		indexes = append(indexes, itemIndex)
+	}
+	sortChatIndexesByTime(m.items, indexes)
+	return indexes
+}
+
+func sortChatIndexesByTime(items []Item, indexes []int) {
+	sort.SliceStable(indexes, func(i, j int) bool {
+		left := items[indexes[i]]
+		right := items[indexes[j]]
+		if less, ok := compareItemTime(left, right, false); ok {
+			return less
+		}
+		return indexes[i] < indexes[j]
+	})
 }
 
 func chatBubbleLines(item Item, text string, selected bool, width int) []string {

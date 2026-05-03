@@ -25,4 +25,5 @@
 - Preserve useful `tui` table columns in 120-column tmux panes so group rows keep date/age and member rows keep time/age/who/title instead of collapsing to title-only lists.
 - Start the shared `tui` in full detail mode like `gitcrawl`, while keeping `d` as the compact/full detail toggle.
 - Trim redundant chat member columns so message panes prioritize time, age, author, and title instead of repeating the selected channel/kind on every row.
+- Default single-channel chat archives to a people/group view so the left pane stays useful for Discord and Slack data.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.

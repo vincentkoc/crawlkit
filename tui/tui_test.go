@@ -249,6 +249,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 		Items: []Item{
 			Row{Kind: "message", ID: "one", Scope: "guild", Container: "general", Author: "Amy", Title: "first update", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
 			Row{Kind: "message", ID: "two", Scope: "guild", Container: "general", Author: "Zed", Title: "second update", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "three", Scope: "guild", Container: "random", Author: "Cam", Title: "other update", CreatedAt: "2026-05-02T08:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.width = 220
@@ -261,7 +262,7 @@ func TestWideRenderFillsTerminalAndKeepsThreePaneColumns(t *testing.T) {
 	if len(lines[0]) != 220 || len(lines[len(lines)-1]) != 220 {
 		t.Fatalf("view did not fill terminal width: first=%d last=%d\n%s", len(lines[0]), len(lines[len(lines)-1]), view)
 	}
-	for _, want := range []string{"Channels", "Messages", "1/2 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "who", "title"} {
+	for _, want := range []string{"Channels", "Messages", "3/3 rows", "Conversation", "kind", "msgs", "latest", "age", "scope", "channel", "time", "who", "title"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("wide render missing %q:\n%s", want, view)
 		}
@@ -631,7 +632,7 @@ func TestChatMembersDefaultToChronologicalTranscriptOrder(t *testing.T) {
 		Title:  "slacrawl archive",
 		Layout: LayoutChat,
 		Items: []Item{
-			Row{Kind: "message", ID: "new", Container: "general", Author: "bob", Title: "new", CreatedAt: "2026-05-01T10:02:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "new", Container: "general", Author: "alice", Title: "new", CreatedAt: "2026-05-01T10:02:00Z"}.ItemForLayout(LayoutChat),
 			Row{Kind: "message", ID: "old", Container: "general", Author: "alice", Title: "old", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
@@ -1309,10 +1310,10 @@ func TestChatExplorerCyclesGroupViews(t *testing.T) {
 		Items: []Item{
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "first", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 			Row{Kind: "message", ID: "m2", Container: "general", Author: "bob", Title: "second", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
-			Row{Kind: "message", ID: "m3", ParentID: "m1", Container: "general", Author: "alice", Title: "reply", CreatedAt: "2026-05-01T11:30:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m3", ParentID: "m1", Container: "random", Author: "alice", Title: "reply", CreatedAt: "2026-05-01T11:30:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
-	if groupModeLabel(m.layoutPreset, m.groupMode) != "channel" || len(m.groups) != 1 {
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "channel" || len(m.groups) != 2 {
 		t.Fatalf("default groups = %s %#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groups)
 	}
 	m.cycleGroupMode()
@@ -1326,6 +1327,24 @@ func TestChatExplorerCyclesGroupViews(t *testing.T) {
 	view := stripANSI(m.View())
 	if !strings.Contains(view, "group:thread") || !strings.Contains(view, "Threads") {
 		t.Fatalf("view should expose thread group mode:\n%s", view)
+	}
+}
+
+func TestChatExplorerDefaultsToPeopleWhenChannelPaneWouldBeEmpty(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "first", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "m2", Container: "general", Author: "bob", Title: "second", CreatedAt: "2026-05-01T11:00:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	if groupModeLabel(m.layoutPreset, m.groupMode) != "person" || len(m.groups) != 2 || m.groupPaneTitle() != "People" {
+		t.Fatalf("single-channel chat should default to people groups, got mode=%s title=%s groups=%#v", groupModeLabel(m.layoutPreset, m.groupMode), m.groupPaneTitle(), m.groups)
+	}
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "People") || !strings.Contains(view, "group:person") {
+		t.Fatalf("view should expose people grouping for single-channel chat:\n%s", view)
 	}
 }
 
@@ -1581,6 +1600,7 @@ func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
 		Items: []Item{
 			Row{Kind: "message", ID: "z", Container: "general", Author: "Zed", Title: "later", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
 			Row{Kind: "message", ID: "a", Container: "general", Author: "Amy", Title: "earlier", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "x", Container: "random", Author: "Cam", Title: "other", CreatedAt: "2026-05-02T08:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.width = 300
