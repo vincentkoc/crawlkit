@@ -362,7 +362,19 @@ func Run(ctx context.Context, opts Options) error {
 		tea.WithAltScreen(),
 		tea.WithMouseAllMotion(),
 	)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-runCtx.Done():
+			program.Kill()
+		case <-done:
+		}
+	}()
 	_, err := program.Run()
+	close(done)
+	if errors.Is(err, tea.ErrProgramKilled) && runCtx.Err() != nil {
+		return nil
+	}
 	return err
 }
 
