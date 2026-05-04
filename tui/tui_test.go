@@ -1070,13 +1070,33 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 		t.Fatalf("action menu status = %q, want Row Actions", m.status)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Detail full", "Actions", "Row Actions", "group scope", "Open selected URL"} {
+	for _, want := range []string{"Detail full", "Channels Actions", "Row Actions", "group scope", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}
 	}
 	if strings.Contains(view, "Detail Row Actions") {
 		t.Fatalf("action menu should keep gitcrawl-style detail chrome:\n%s", view)
+	}
+}
+
+func TestActionMenuTitlesFollowFocusedPane(t *testing.T) {
+	m := newModel(Options{
+		Title:  "archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", Container: "general", Author: "amy", Title: "alpha"}.ItemForLayout(LayoutChat),
+		},
+	})
+	m.width = 160
+	m.height = 30
+	m.focus = focusContext
+	m.openActionMenu()
+	view := stripANSI(m.View())
+	for _, want := range []string{"Messages Actions", "selected item scope"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("context action menu missing %q:\n%s", want, view)
+		}
 	}
 }
 

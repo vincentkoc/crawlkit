@@ -2003,8 +2003,10 @@ func (m model) menuLines(width int) []string {
 
 func (m model) displayMenuTitle() string {
 	switch m.menuTitle {
-	case "Row Actions", "Context Actions", "Detail Actions":
-		return "Actions"
+	case "Row Actions":
+		return m.groupPaneTitle() + " Actions"
+	case "Context Actions":
+		return m.memberPaneTitle() + " Actions"
 	default:
 		return firstNonEmpty(m.menuTitle, "Actions")
 	}
@@ -2052,7 +2054,7 @@ func actionMenuSubtitle(context paneFocus) string {
 	case focusRows:
 		return "group scope"
 	case focusContext:
-		return "selected row scope"
+		return "selected item scope"
 	case focusDetail:
 		return "detail scope"
 	default:
