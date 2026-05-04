@@ -220,6 +220,27 @@ func TestRowsPaneUsesStableColumns(t *testing.T) {
 	}
 }
 
+func TestRowsPaneCompactsMultilineTitles(t *testing.T) {
+	line := rowListLine(Item{
+		Kind:      "message",
+		Container: "general",
+		Author:    "alice",
+		CreatedAt: "2026-05-02T12:00:00Z",
+		Title:     ":books: *New Course Started*\n\nCourse: *ChatGPT for Enterprise*\nStudent: Mirna",
+	}, 96)
+	if strings.Contains(line, "\n") {
+		t.Fatalf("row line should be single-line: %q", line)
+	}
+	for _, want := range []string{"message", "2026-05-02", "alice", "New Course Started Course"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("row line missing %q: %q", want, line)
+		}
+	}
+	if strings.Contains(line, "*") || strings.Contains(line, ":books:") {
+		t.Fatalf("row line should render compact readable text: %q", line)
+	}
+}
+
 func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",

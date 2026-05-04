@@ -4193,9 +4193,9 @@ func rowListLine(item Item, width int) string {
 
 func displayRowTitle(title string) string {
 	if rendered := renderInlineMarkdown(title); rendered != "" {
-		return rendered
+		return compactTitle(rendered)
 	}
-	return strings.TrimSpace(title)
+	return compactTitle(title)
 }
 
 func compactRowListLine(item Item, title string, width int) string {
