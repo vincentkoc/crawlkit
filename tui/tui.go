@@ -711,6 +711,7 @@ func (m *model) applyInitialGroupMode() {
 type paneFocus int
 
 const (
+	focusNone paneFocus = -1
 	focusRows paneFocus = iota
 	focusContext
 	focusDetail
@@ -1115,9 +1116,9 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 	switch key.String() {
 	case "ctrl+c":
 		return tea.Quit
-	case "q", "ctrl+d":
+	case "ctrl+d":
 		return tea.Quit
-	case "esc":
+	case "q", "esc":
 		m.closeMenu()
 	case "up", "k":
 		m.menuIndex = m.nextSelectableMenuIndex(-1)
@@ -1164,7 +1165,7 @@ func (m *model) updateMenuKey(key tea.KeyMsg) tea.Cmd {
 }
 
 func (m *model) openActionMenu() {
-	m.openActionMenuFor(m.focus)
+	m.openActionMenuFor(focusNone)
 }
 
 func (m *model) openActionMenuFor(context paneFocus) {

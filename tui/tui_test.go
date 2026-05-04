@@ -423,16 +423,17 @@ func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
 	}
 }
 
-func TestQQuitsFromMenuAndFilterModes(t *testing.T) {
+func TestQClosesMenuAndQuitsFromFilterModes(t *testing.T) {
 	m := newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
 	if !m.menuOpen {
 		t.Fatal("menu did not open")
 	}
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
-	if cmd == nil {
-		t.Fatal("q in menu should quit")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = updated.(model)
+	if cmd != nil || m.menuOpen {
+		t.Fatalf("q in menu should close only, menu=%v cmd=%v", m.menuOpen, cmd)
 	}
 
 	m = newModel(Options{Title: "archive", Items: []Item{{Title: "alpha"}}})
@@ -1050,8 +1051,11 @@ func TestKeyboardActionShortcutAliasOpensMenu(t *testing.T) {
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
 
-	if !m.menuOpen || m.menuTitle != "Row Actions" {
+	if !m.menuOpen || m.menuTitle != "Actions" {
 		t.Fatalf("action shortcut menu open=%v title=%q", m.menuOpen, m.menuTitle)
+	}
+	if m.menuFloating {
+		t.Fatal("keyboard action menu should render in the detail pane")
 	}
 }
 
@@ -1066,17 +1070,17 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 	m.height = 30
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	m = updated.(model)
-	if m.status != "Channels Actions" {
-		t.Fatalf("action menu status = %q, want Channels Actions", m.status)
+	if m.status != "Actions" {
+		t.Fatalf("action menu status = %q, want Actions", m.status)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Thread full", "Channels Actions", "group scope", "Open selected URL"} {
+	for _, want := range []string{"Thread full", "Actions", "current selection", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}
 	}
-	if strings.Contains(view, "Row Actions") {
-		t.Fatalf("action menu should use semantic pane titles in visible chrome:\n%s", view)
+	if strings.Contains(view, "Row Actions") || strings.Contains(view, "Channels Actions") {
+		t.Fatalf("keyboard action menu should use gitcrawl-style generic title:\n%s", view)
 	}
 	if strings.Contains(view, "Detail Row Actions") {
 		t.Fatalf("action menu should keep gitcrawl-style detail chrome:\n%s", view)
@@ -1094,7 +1098,7 @@ func TestActionMenuTitlesFollowFocusedPane(t *testing.T) {
 	m.width = 160
 	m.height = 30
 	m.focus = focusContext
-	m.openActionMenu()
+	m.openActionMenuFor(focusContext)
 	if m.status != "Messages Actions" {
 		t.Fatalf("context action menu status = %q, want Messages Actions", m.status)
 	}
