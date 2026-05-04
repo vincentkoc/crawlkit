@@ -43,3 +43,4 @@
 - Add `snapshot.ImportOptions.Progress` so apps can report table/file-level import progress in CI logs.
 - Match `gitcrawl` action-menu muscle memory: keyboard `a` opens a general detail-pane menu, right-click keeps pane-scoped floating menus, and `q`/Esc close menus.
 - Keep chat/document TUI groups scoped by workspace/server so same-named channels, people, parents, or databases do not collapse into one misleading pane row.
+- Add a chat member relation column so Slack/Discord message panes distinguish normal messages, thread roots, and replies at a glance.
