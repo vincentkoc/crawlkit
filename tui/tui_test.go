@@ -247,7 +247,7 @@ func TestViewUsesGitcrawlStylePaneTables(t *testing.T) {
 		Layout: LayoutChat,
 		Items: []Item{
 			Row{Kind: "message", ID: "one", Scope: "T1", Container: "general", Author: "Amy", Title: "first update", CreatedAt: "2026-05-02T09:00:00Z"}.ItemForLayout(LayoutChat),
-			Row{Kind: "message", ID: "two", Scope: "T1", Container: "general", Author: "Zed", Title: "second update", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "two", Scope: "T1", Container: "random", Author: "Zed", Title: "second update", CreatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
 	m.width = 300
@@ -651,7 +651,7 @@ func TestChatDetailKeepsRawIDsBelowReadableSummary(t *testing.T) {
 	}
 }
 
-func TestDetailModeToggleStartsFullLikeGitcrawl(t *testing.T) {
+func TestDetailModeToggleStartsCompactForReadableArchiveFirstRun(t *testing.T) {
 	m := newModel(Options{
 		Title:  "discrawl archive",
 		Layout: LayoutChat,
@@ -659,34 +659,47 @@ func TestDetailModeToggleStartsFullLikeGitcrawl(t *testing.T) {
 			Row{Kind: "message", ID: "m1", Container: "general", Author: "alice", Title: "root", Text: "root message", CreatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(LayoutChat),
 		},
 	})
-	if m.compactDetail {
-		t.Fatal("detail should default to full like gitcrawl")
-	}
-	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
-	if !strings.Contains(full, "root message") || !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
-		t.Fatalf("full detail should include readable content and metadata sections:\n%s", full)
-	}
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
-	m = updated.(model)
 	if !m.compactDetail {
-		t.Fatal("detail mode did not toggle to compact")
+		t.Fatal("chat detail should default to compact so the first pane is readable")
 	}
 	compact := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
 	if !strings.Contains(compact, "root message") || strings.Contains(compact, "Properties") || strings.Contains(compact, "IDs") {
 		t.Fatalf("compact detail should keep readable content and hide metadata sections:\n%s", compact)
 	}
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
 	m = updated.(model)
 	if m.compactDetail {
 		t.Fatal("detail mode did not toggle to full")
 	}
-	full = stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
-	if !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
-		t.Fatalf("full detail should include metadata sections:\n%s", full)
+	full := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(full, "root message") || !strings.Contains(full, "Properties") || !strings.Contains(full, "IDs") {
+		t.Fatalf("full detail should include readable content and metadata sections:\n%s", full)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	m = updated.(model)
+	if !m.compactDetail {
+		t.Fatal("detail mode did not toggle back to compact")
 	}
 	m.width = 190
 	if !strings.Contains(stripANSI(m.View()), "d detail") {
 		t.Fatalf("footer should expose detail toggle:\n%s", stripANSI(m.View()))
+	}
+}
+
+func TestDocumentDetailDefaultsCompactForPreviewFirstRun(t *testing.T) {
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", ID: "page1", ParentID: "Roadmap", Title: "Launch", Text: "Ship the page preview.", UpdatedAt: "2026-05-01T10:00:00Z", Fields: map[string]string{"parent_table": "collection"}}.ItemForLayout(LayoutDocument),
+		},
+	})
+	if !m.compactDetail {
+		t.Fatal("document detail should default to compact so page previews lead")
+	}
+	compact := stripANSI(strings.Join(m.detailLinesForWidth(m.items[0], 60), "\n"))
+	if !strings.Contains(compact, "Ship the page preview.") || strings.Contains(compact, "Properties") {
+		t.Fatalf("compact document detail should show preview and hide properties:\n%s", compact)
 	}
 }
 
@@ -1074,7 +1087,7 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 		t.Fatalf("action menu status = %q, want Actions", m.status)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Thread full", "Actions", "current selection", "Open selected URL"} {
+	for _, want := range []string{"Thread compact", "Actions", "current selection", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}
@@ -1118,7 +1131,7 @@ func TestDetailPaneTitleFollowsLayout(t *testing.T) {
 	})
 	chat.width = 160
 	chat.height = 24
-	if view := stripANSI(chat.View()); !strings.Contains(view, "Thread full") || strings.Contains(view, "Detail Thread full") {
+	if view := stripANSI(chat.View()); !strings.Contains(view, "Thread compact") || strings.Contains(view, "Detail Thread compact") {
 		t.Fatalf("chat detail pane should be labeled as a thread:\n%s", view)
 	}
 
@@ -1129,7 +1142,7 @@ func TestDetailPaneTitleFollowsLayout(t *testing.T) {
 	})
 	doc.width = 160
 	doc.height = 24
-	if view := stripANSI(doc.View()); !strings.Contains(view, "Page full") || strings.Contains(view, "Detail Page full") {
+	if view := stripANSI(doc.View()); !strings.Contains(view, "Page compact") || strings.Contains(view, "Detail Page compact") {
 		t.Fatalf("document detail pane should be labeled as a page:\n%s", view)
 	}
 }

@@ -684,6 +684,7 @@ func newModel(opts Options) model {
 		layoutPreset:   layout,
 		sortMode:       initialGroupSortMode(layout),
 		memberSortMode: sortNewest,
+		compactDetail:  initialCompactDetail(layout),
 		detailView:     viewport.New(1, 1),
 	}
 	if m.title == "" {
@@ -704,6 +705,15 @@ func initialGroupSortMode(layout LayoutPreset) sortMode {
 		return sortCount
 	default:
 		return sortNewest
+	}
+}
+
+func initialCompactDetail(layout LayoutPreset) bool {
+	switch layout {
+	case LayoutChat, LayoutDocument:
+		return true
+	default:
+		return false
 	}
 }
 
