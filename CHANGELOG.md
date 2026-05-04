@@ -38,3 +38,5 @@
 - Show chat reply counts in detail metadata when apps provide thread/reply counts.
 - Force the Bubble Tea program to shut down on terminal signals so interrupted TUIs restore terminal modes and do not leave orphaned tmux panes.
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
+- Show pane-specific action menu titles in the TUI status/footer instead of leaking generic row/context labels.
+- Add `snapshot.ImportOptions.Progress` so apps can report table/file-level import progress in CI logs.
