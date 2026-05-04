@@ -1265,6 +1265,7 @@ func TestSortMenuSortsRowsByStructuredTitle(t *testing.T) {
 			Row{Kind: "page", Title: "Alpha"}.ItemForLayout(LayoutDocument),
 		},
 	})
+	m.selectItemIndex(0)
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'S'}})
 	m = updated.(model)
 	if !m.menuOpen || m.menuTitle != "Sort Groups" {
@@ -1320,7 +1321,7 @@ func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = updated.(model)
-	if m.sortMode != sortNewest {
+	if m.sortMode != sortCount {
 		t.Fatalf("group sort changed to %v", m.sortMode)
 	}
 	if m.memberSortMode != sortAuthor {
@@ -1366,7 +1367,7 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = updated.(model)
-	if m.menuOpen || m.sortMode != sortOldest || !strings.Contains(m.status, "Sort: oldest") {
+	if m.menuOpen || m.sortMode != sortNewest || !strings.Contains(m.status, "Sort: newest") {
 		t.Fatalf("s should cycle group sort, menu=%v sort=%v status=%q", m.menuOpen, m.sortMode, m.status)
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
@@ -1505,7 +1506,7 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	view := m.View()
-	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/1 rows") || !strings.Contains(view, "random") {
+	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/2 rows") || !strings.Contains(view, "general") {
 		t.Fatalf("chat explorer did not render grouped panes:\n%s", view)
 	}
 	if len(m.groups) != 2 {
@@ -1850,8 +1851,8 @@ func TestClickingRowsCountHeaderSortsLikeGitcrawl(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	layout := m.layout()
-	if group, ok := m.currentGroup(); !ok || group.Title != "random" {
-		t.Fatalf("initial newest group = %#v ok=%v", group, ok)
+	if group, ok := m.currentGroup(); !ok || group.Title != "general" || group.Count != 2 {
+		t.Fatalf("initial count group = %#v ok=%v", group, ok)
 	}
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.rows.x + 2,

@@ -682,7 +682,7 @@ func newModel(opts Options) model {
 		sourceKind:     normalizeSourceKind(opts.SourceKind),
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 		layoutPreset:   layout,
-		sortMode:       sortNewest,
+		sortMode:       initialGroupSortMode(layout),
 		memberSortMode: sortNewest,
 		detailView:     viewport.New(1, 1),
 	}
@@ -694,7 +694,17 @@ func newModel(opts Options) model {
 	}
 	m.applyFilter()
 	m.applyInitialGroupMode()
+	m.selectGroup(0)
 	return m
+}
+
+func initialGroupSortMode(layout LayoutPreset) sortMode {
+	switch layout {
+	case LayoutChat, LayoutDocument:
+		return sortCount
+	default:
+		return sortNewest
+	}
 }
 
 func (m *model) applyInitialGroupMode() {
@@ -2401,7 +2411,7 @@ func (m *model) setPaneSortMode(mode sortMode) {
 }
 
 func (m *model) cycleSortMode() {
-	order := []sortMode{sortDefault, sortNewest, sortOldest}
+	order := []sortMode{sortCount, sortNewest}
 	m.setSortMode(nextSortMode(m.sortMode, order))
 	m.status = "Sort: " + m.sortMode.Label()
 }
