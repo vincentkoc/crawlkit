@@ -40,3 +40,4 @@
 - Rename the public package nouns to `config`, `store`, `snapshot`, `mirror`, `state`, `output`, `tui`, and `cache`.
 - Show pane-specific action menu titles in the TUI status/footer instead of leaking generic row/context labels.
 - Add `snapshot.ImportOptions.Progress` so apps can report table/file-level import progress in CI logs.
+- Match `gitcrawl` action-menu muscle memory: keyboard `a` opens a general detail-pane menu, right-click keeps pane-scoped floating menus, and `q`/Esc close menus.
