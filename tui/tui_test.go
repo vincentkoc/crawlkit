@@ -1383,7 +1383,7 @@ func TestContextSortMenuSortsMembersWithoutResortingGroups(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'8'}})
 	m = updated.(model)
-	if m.sortMode != sortCount {
+	if m.sortMode != sortNewest {
 		t.Fatalf("group sort changed to %v", m.sortMode)
 	}
 	if m.memberSortMode != sortAuthor {
@@ -1429,13 +1429,33 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	})
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}})
 	m = updated.(model)
-	if m.menuOpen || m.sortMode != sortNewest || !strings.Contains(m.status, "Sort: newest") {
+	if m.menuOpen || m.sortMode != sortCount || !strings.Contains(m.status, "Sort: count") {
 		t.Fatalf("s should cycle group sort, menu=%v sort=%v status=%q", m.menuOpen, m.sortMode, m.status)
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
 	m = updated.(model)
 	if m.menuOpen || m.memberSortMode != sortNewest || !strings.Contains(m.status, "Member sort: newest") {
 		t.Fatalf("m should cycle member sort, menu=%v member=%v status=%q", m.menuOpen, m.memberSortMode, m.status)
+	}
+}
+
+func TestChatAndDocumentGroupsDefaultToNewest(t *testing.T) {
+	for _, layout := range []LayoutPreset{LayoutChat, LayoutDocument} {
+		m := newModel(Options{
+			Title:  "archive",
+			Layout: layout,
+			Items: []Item{
+				Row{Kind: "message", Container: "old", ParentID: "old", Title: "old", UpdatedAt: "2026-05-01T10:00:00Z"}.ItemForLayout(layout),
+				Row{Kind: "message", Container: "new", ParentID: "new", Title: "new", UpdatedAt: "2026-05-02T10:00:00Z"}.ItemForLayout(layout),
+			},
+		})
+		if m.sortMode != sortNewest {
+			t.Fatalf("%s group sort = %v, want newest", layout, m.sortMode)
+		}
+		group, ok := m.currentGroup()
+		if !ok || group.Title != "new" {
+			t.Fatalf("%s first group = %#v ok=%v, want newest group", layout, group, ok)
+		}
 	}
 }
 
@@ -1568,7 +1588,7 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	view := m.View()
-	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/2 rows") || !strings.Contains(view, "general") {
+	if !strings.Contains(view, "Channels") || !strings.Contains(view, "Messages") || !strings.Contains(view, "1/1 rows") || !strings.Contains(view, "random") {
 		t.Fatalf("chat explorer did not render grouped panes:\n%s", view)
 	}
 	if len(m.groups) != 2 {
@@ -1945,8 +1965,8 @@ func TestClickingRowsCountHeaderSortsLikeGitcrawl(t *testing.T) {
 	m.width = 160
 	m.height = 24
 	layout := m.layout()
-	if group, ok := m.currentGroup(); !ok || group.Title != "general" || group.Count != 2 {
-		t.Fatalf("initial count group = %#v ok=%v", group, ok)
+	if group, ok := m.currentGroup(); !ok || group.Title != "random" || group.Count != 1 {
+		t.Fatalf("initial newest group = %#v ok=%v", group, ok)
 	}
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.rows.x + 2,

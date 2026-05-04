@@ -702,7 +702,7 @@ func newModel(opts Options) model {
 func initialGroupSortMode(layout LayoutPreset) sortMode {
 	switch layout {
 	case LayoutChat, LayoutDocument:
-		return sortCount
+		return sortNewest
 	default:
 		return sortNewest
 	}
