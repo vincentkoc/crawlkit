@@ -145,6 +145,54 @@ func TestImportHooks(t *testing.T) {
 	}
 }
 
+func TestImportReportsTableAndFileProgress(t *testing.T) {
+	ctx := context.Background()
+	src, err := store.Open(ctx, store.Options{
+		Path:   filepath.Join(t.TempDir(), "src.db"),
+		Schema: `create table things(id text primary key, body text not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	mustExec(t, src.DB(), `insert into things(id, body) values('one', 'keep')`)
+	mustExec(t, src.DB(), `insert into things(id, body) values('two', 'skip')`)
+	root := t.TempDir()
+	if _, err := Export(ctx, ExportOptions{DB: src.DB(), RootDir: root, Tables: []string{"things"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := store.Open(ctx, store.Options{
+		Path:   filepath.Join(t.TempDir(), "dst.db"),
+		Schema: `create table things(id text primary key, body text not null);`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	var progress []ImportProgress
+	if _, err := Import(ctx, ImportOptions{
+		DB:      dst.DB(),
+		RootDir: root,
+		Filter: func(table string, row map[string]any) (bool, error) {
+			return row["id"] != "two", nil
+		},
+		Progress: func(event ImportProgress) {
+			progress = append(progress, event)
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"table_start", "file_start", "file_done", "table_done"} {
+		if !containsImportPhase(progress, phase) {
+			t.Fatalf("progress missing %q: %+v", phase, progress)
+		}
+	}
+	if got := progress[len(progress)-1]; got.Phase != "table_done" || got.Table != "things" || got.Rows != 1 || got.TotalRows != 2 {
+		t.Fatalf("table_done progress = %+v", got)
+	}
+}
+
 func TestImportLegacySingularFileManifest(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -230,6 +278,15 @@ func TestImportFilterSkipsRows(t *testing.T) {
 	if count != 0 {
 		t.Fatalf("private rows imported = %d", count)
 	}
+}
+
+func containsImportPhase(progress []ImportProgress, phase string) bool {
+	for _, event := range progress {
+		if event.Phase == phase {
+			return true
+		}
+	}
+	return false
 }
 
 func mustExec(t *testing.T, db *sql.DB, query string) {
