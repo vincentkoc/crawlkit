@@ -1929,11 +1929,11 @@ func (m *model) syncDetailViewport() {
 }
 
 func (m *model) configureDetailViewport(rect rect, lines []string) {
-	title := m.detailPaneTitle() + " " + detailModeLabel(m.compactDetail)
+	title := detailModeLabel(m.compactDetail)
 	if focus := paneFocusLabel(m.focus == focusDetail); focus != "" {
 		title += "  " + focus
 	}
-	content := append([]string{paneTitleForWidth(focusDetail, m.focus, title, paneContentWidth(rect.w))}, lines...)
+	content := append([]string{paneTitleWithLabelForWidth(m.detailPaneTitle(), focusDetail, m.focus, title, paneContentWidth(rect.w))}, lines...)
 	m.detailView.Width = paneContentWidth(rect.w)
 	m.detailView.Height = maxInt(1, rect.h-2)
 	m.detailView.MouseWheelEnabled = true

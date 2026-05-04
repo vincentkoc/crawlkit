@@ -1108,7 +1108,7 @@ func TestDetailPaneTitleFollowsLayout(t *testing.T) {
 	})
 	chat.width = 160
 	chat.height = 24
-	if view := stripANSI(chat.View()); !strings.Contains(view, "Thread full") {
+	if view := stripANSI(chat.View()); !strings.Contains(view, "Thread full") || strings.Contains(view, "Detail Thread full") {
 		t.Fatalf("chat detail pane should be labeled as a thread:\n%s", view)
 	}
 
@@ -1119,7 +1119,7 @@ func TestDetailPaneTitleFollowsLayout(t *testing.T) {
 	})
 	doc.width = 160
 	doc.height = 24
-	if view := stripANSI(doc.View()); !strings.Contains(view, "Page full") {
+	if view := stripANSI(doc.View()); !strings.Contains(view, "Page full") || strings.Contains(view, "Detail Page full") {
 		t.Fatalf("document detail pane should be labeled as a page:\n%s", view)
 	}
 }
