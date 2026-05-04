@@ -1342,7 +1342,7 @@ func (m *model) openMenu(title string, items []menuItem) {
 	m.showHelp = false
 	m.menuOpen = true
 	m.menuTitle = title
-	m.status = firstNonEmpty(title, "Actions")
+	m.status = m.displayMenuTitle()
 	m.menuItems = append([]menuItem(nil), items...)
 	m.menuIndex = m.firstSelectableMenuIndex()
 	m.menuOff = 0
