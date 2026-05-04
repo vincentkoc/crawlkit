@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func stripANSI(value string) string {
@@ -763,6 +764,30 @@ func TestChatMembersDefaultToNewestFirstLikeGitcrawl(t *testing.T) {
 	members = m.currentGroupMembers()
 	if got := m.items[members[0]].ID; got != "old" {
 		t.Fatalf("oldest sort first member = %q, want oldest message first", got)
+	}
+}
+
+func TestChatMemberColumnsExposeThreadState(t *testing.T) {
+	m := newModel(Options{
+		Title:  "discrawl archive",
+		Layout: LayoutChat,
+		Items: []Item{
+			Row{Kind: "message", ID: "root", Container: "general", Author: "alice", Title: "root", CreatedAt: "2026-05-01T10:00:00Z", Fields: map[string]string{"reply_count": "2"}}.ItemForLayout(LayoutChat),
+			Row{Kind: "message", ID: "reply", ParentID: "root", Container: "general", Author: "alice", Title: "reply", CreatedAt: "2026-05-01T10:01:00Z"}.ItemForLayout(LayoutChat),
+		},
+	})
+	columns := m.memberColumns(52)
+	header := stripANSI(renderTableHeader(columns, 52, "#9bc53d"))
+	if !strings.Contains(header, "rel") {
+		t.Fatalf("chat member header should expose relation column:\n%s", header)
+	}
+	rows := m.memberTableRows(columns, m.currentGroupMembers())
+	rendered := stripANSI(strings.Join([]string{
+		renderTableRow(columns, rows[0], 52, lipgloss.NewStyle()),
+		renderTableRow(columns, rows[1], 52, lipgloss.NewStyle()),
+	}, "\n"))
+	if !strings.Contains(rendered, "thr") || !strings.Contains(rendered, "rep") {
+		t.Fatalf("chat member rows should show thread/reply state:\n%s", rendered)
 	}
 }
 
@@ -1928,9 +1953,14 @@ func TestClickingContextHeaderUsesContextPaneColumns(t *testing.T) {
 	m.height = 24
 	layout := m.layout()
 	contextWidth := paneContentWidth(layout.context.w)
-	whenW := minInt(maxInt(10, contextWidth/6), 16)
-	ageW := minInt(maxInt(4, contextWidth/16), 7)
-	authorX := whenW + 1 + ageW + 1
+	columns := m.memberColumns(contextWidth)
+	authorX := 0
+	for index, column := range columns {
+		if column.Key == "author" {
+			authorX = columnLeftEdge(columns, index)
+			break
+		}
+	}
 	updated, _ := m.Update(tea.MouseMsg{
 		X:      layout.context.x + 2 + authorX,
 		Y:      layout.context.y + 2,

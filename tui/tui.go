@@ -3374,6 +3374,8 @@ func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow 
 				row = append(row, rowWhere(item))
 			case "author":
 				row = append(row, itemAuthor(item))
+			case "relation":
+				row = append(row, chatRelationForColumn(item, column.Width))
 			default:
 				row = append(row, title)
 			}
@@ -3516,11 +3518,13 @@ func (m model) memberColumns(width int) []tableColumn {
 				{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 			}
 		}
-		authorW := minInt(maxInt(5, width/6), 9)
-		titleW := maxInt(1, width-whenW-ageW-authorW-3)
+		relationW := 3
+		authorW := minInt(maxInt(5, width/7), 9)
+		titleW := maxInt(1, width-whenW-ageW-relationW-authorW-4)
 		return []tableColumn{
 			{Key: "time", Title: activeTimeLabel(m.memberTimeLabel(), active), Width: whenW},
 			{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+			{Key: "relation", Title: "rel", Width: relationW},
 			{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
 			{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 		}
@@ -3540,10 +3544,12 @@ func (m model) memberColumns(width int) []tableColumn {
 		}
 	}
 	authorW := minInt(maxInt(8, width/7), 18)
-	titleW := maxInt(1, width-whenW-ageW-authorW-3)
+	relationW := 5
+	titleW := maxInt(1, width-whenW-ageW-relationW-authorW-4)
 	return []tableColumn{
 		{Key: "time", Title: activeTimeLabel("time", active), Width: whenW},
 		{Key: "age", Title: activeTimeLabel("age", active), Width: ageW},
+		{Key: "relation", Title: "type", Width: relationW},
 		{Key: "author", Title: activeLabel("who", active == sortAuthor), Width: authorW},
 		{Key: "title", Title: activeLabel("title", active == sortTitle), Width: titleW},
 	}
@@ -3829,6 +3835,28 @@ func chatReplyCountLabel(item Item) string {
 		return ""
 	}
 	return value + " replies"
+}
+
+func chatRelationForColumn(item Item, width int) string {
+	label := "msg"
+	if strings.TrimSpace(item.ParentID) != "" {
+		label = "reply"
+	} else if chatReplyCountLabel(item) != "" {
+		label = "thread"
+	} else if thread := strings.TrimSpace(fieldValue(item, "thread", "reply_to")); thread != "" && thread != strings.TrimSpace(item.ID) && thread != strings.TrimSpace(fieldValue(item, "ts")) {
+		label = "thread"
+	}
+	if width <= 3 {
+		switch label {
+		case "reply":
+			return "rep"
+		case "thread":
+			return "thr"
+		default:
+			return "msg"
+		}
+	}
+	return label
 }
 
 func chatThreadLabel(item Item) string {
