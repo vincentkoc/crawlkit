@@ -400,6 +400,26 @@ func TestGroupColumnsOmitEmptyScope(t *testing.T) {
 	}
 }
 
+func TestChatGroupsDoNotMergeSameChannelAcrossScopes(t *testing.T) {
+	m := newModel(Options{Layout: LayoutChat, Items: []Item{
+		Row{Kind: "message", Scope: "workspace-a", Container: "general", Title: "one", CreatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutChat),
+		Row{Kind: "message", Scope: "workspace-b", Container: "general", Title: "two", CreatedAt: "2026-05-02T13:00:00Z"}.ItemForLayout(LayoutChat),
+	}})
+	if len(m.groups) != 2 {
+		t.Fatalf("same channel names in different scopes should stay separate: %#v", m.groups)
+	}
+	columns := m.groupColumns(90)
+	foundScope := false
+	for _, column := range columns {
+		if column.Key == "scope" {
+			foundScope = true
+		}
+	}
+	if !foundScope {
+		t.Fatalf("multi-scope chat groups should expose the scope column: %#v", columns)
+	}
+}
+
 func TestVeryNarrowPanesStillShowCompactColumns(t *testing.T) {
 	group := itemGroup{Kind: "channel", Count: 18, Latest: "2026-05-02T12:00:00Z", Title: "github-secure-session-4"}
 	groupHeader := groupListHeader(28, sortDefault)
@@ -746,7 +766,7 @@ func TestChatMembersDefaultToNewestFirstLikeGitcrawl(t *testing.T) {
 	}
 }
 
-func TestChatMembersScopeSortUsesScopeNotContainer(t *testing.T) {
+func TestChatGroupScopeSortUsesScopeNotContainer(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
 		Layout: LayoutChat,
@@ -755,13 +775,12 @@ func TestChatMembersScopeSortUsesScopeNotContainer(t *testing.T) {
 			Row{Kind: "message", ID: "two", Scope: "a-workspace", Container: "general", Title: "two"}.ItemForLayout(LayoutChat),
 		},
 	})
-	m.setMemberSortMode(sortScope)
-	members := m.currentGroupMembers()
-	if len(members) != 2 {
-		t.Fatalf("members = %#v", members)
+	m.setSortMode(sortScope)
+	if len(m.groups) != 2 {
+		t.Fatalf("groups = %#v", m.groups)
 	}
-	if got := m.items[members[0]].ID; got != "two" {
-		t.Fatalf("scope-sorted first member = %q, want a-workspace row", got)
+	if got := m.groups[0].Scope; got != "a-workspace" {
+		t.Fatalf("scope-sorted first group = %q, want a-workspace", got)
 	}
 }
 
@@ -1604,6 +1623,16 @@ func TestDocumentExplorerGroupsParentsAndListsPages(t *testing.T) {
 	}
 	if len(m.groups) != 2 || m.groups[0].Kind != "parent" {
 		t.Fatalf("groups = %#v", m.groups)
+	}
+}
+
+func TestDocumentGroupsDoNotMergeSameParentAcrossWorkspaces(t *testing.T) {
+	m := newModel(Options{Layout: LayoutDocument, Items: []Item{
+		Row{Kind: "page", Scope: "workspace-a", ParentID: "Client Dashboards", Title: "one", UpdatedAt: "2026-05-02T12:00:00Z"}.ItemForLayout(LayoutDocument),
+		Row{Kind: "page", Scope: "workspace-b", ParentID: "Client Dashboards", Title: "two", UpdatedAt: "2026-05-02T13:00:00Z"}.ItemForLayout(LayoutDocument),
+	}})
+	if len(m.groups) != 2 {
+		t.Fatalf("same parent names in different workspaces should stay separate: %#v", m.groups)
 	}
 }
 

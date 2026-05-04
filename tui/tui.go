@@ -2569,25 +2569,30 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 	case LayoutChat:
 		if m.groupMode == groupByAuthor {
 			if author := strings.TrimSpace(itemAuthor(item)); author != "" {
-				return "author:" + author, displayLabel(author), "person", strings.TrimSpace(item.Scope)
+				scope := strings.TrimSpace(item.Scope)
+				return scopedGroupKey("author", author, scope), displayLabel(author), "person", scope
 			}
 		}
 		if m.groupMode == groupByThread {
 			if thread := threadKey(item); thread != "" {
+				scope := strings.TrimSpace(item.Scope)
 				title := firstNonEmpty(item.Title, thread)
-				return "thread:" + thread, displayLabel(title), "thread", strings.TrimSpace(item.Scope)
+				return scopedGroupKey("thread", thread, scope), displayLabel(title), "thread", scope
 			}
 		}
 		if container := strings.TrimSpace(item.Container); container != "" {
-			return "container:" + container, displayLabel(container), "channel", strings.TrimSpace(item.Scope)
+			scope := strings.TrimSpace(item.Scope)
+			return scopedGroupKey("container", container, scope), displayLabel(container), "channel", scope
 		}
 		if author := strings.TrimSpace(itemAuthor(item)); author != "" {
-			return "author:" + author, displayLabel(author), "person", strings.TrimSpace(item.Scope)
+			scope := strings.TrimSpace(item.Scope)
+			return scopedGroupKey("author", author, scope), displayLabel(author), "person", scope
 		}
 	case LayoutDocument:
 		if m.groupMode == groupByContainer {
 			if container := strings.TrimSpace(item.Container); container != "" {
-				return "container:" + container, displayLabel(container), "database", strings.TrimSpace(item.Scope)
+				scope := strings.TrimSpace(item.Scope)
+				return scopedGroupKey("container", container, scope), displayLabel(container), "database", scope
 			}
 		}
 		if m.groupMode == groupByScope {
@@ -2596,10 +2601,12 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 			}
 		}
 		if parent := strings.TrimSpace(item.ParentID); parent != "" {
-			return "parent:" + parent, displayLabel(parent), "parent", strings.TrimSpace(item.Scope)
+			scope := strings.TrimSpace(item.Scope)
+			return scopedGroupKey("parent", parent, scope), displayLabel(parent), "parent", scope
 		}
 		if container := strings.TrimSpace(item.Container); container != "" {
-			return "container:" + container, displayLabel(container), "database", strings.TrimSpace(item.Scope)
+			scope := strings.TrimSpace(item.Scope)
+			return scopedGroupKey("container", container, scope), displayLabel(container), "database", scope
 		}
 	}
 	for _, value := range []struct {
@@ -2617,6 +2624,15 @@ func (m model) groupFields(item Item) (key, title, kind, scope string) {
 	}
 	title = firstNonEmpty(item.Title, item.ID, itemKind(item), "row")
 	return "row:" + title, displayLabel(title), firstNonEmpty(itemKind(item), "row"), strings.TrimSpace(item.Scope)
+}
+
+func scopedGroupKey(kind, value, scope string) string {
+	value = strings.TrimSpace(value)
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return kind + ":" + value
+	}
+	return kind + ":" + scope + "/" + value
 }
 
 func compareGroups(left, right itemGroup, mode sortMode) (bool, bool) {
@@ -3438,11 +3454,14 @@ func (m model) groupColumns(width int) []tableColumn {
 }
 
 func (m model) shouldShowGroupScopeColumn() bool {
-	if m.layoutPreset == LayoutChat {
-		return false
-	}
+	seen := map[string]struct{}{}
 	for _, group := range m.groups {
-		if strings.TrimSpace(group.Scope) != "" {
+		scope := strings.TrimSpace(group.Scope)
+		if scope == "" {
+			continue
+		}
+		seen[strings.ToLower(scope)] = struct{}{}
+		if m.layoutPreset != LayoutChat || len(seen) > 1 {
 			return true
 		}
 	}
