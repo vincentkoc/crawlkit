@@ -744,7 +744,7 @@ func TestFooterControlsPrioritizeGitcrawlMuscleMemory(t *testing.T) {
 	}
 }
 
-func TestChatMembersDefaultToNewestFirstLikeGitcrawl(t *testing.T) {
+func TestChatMembersDefaultToChronologicalSectionsLikeGitcrawl(t *testing.T) {
 	m := newModel(Options{
 		Title:  "slacrawl archive",
 		Layout: LayoutChat,
@@ -757,13 +757,17 @@ func TestChatMembersDefaultToNewestFirstLikeGitcrawl(t *testing.T) {
 	if len(members) != 2 {
 		t.Fatalf("members = %#v", members)
 	}
-	if got := m.items[members[0]].ID; got != "new" {
-		t.Fatalf("first member = %q, want newest message first", got)
-	}
-	m.setMemberSortMode(sortOldest)
-	members = m.currentGroupMembers()
 	if got := m.items[members[0]].ID; got != "old" {
-		t.Fatalf("oldest sort first member = %q, want oldest message first", got)
+		t.Fatalf("first member = %q, want chronological message first", got)
+	}
+	contextRows := m.currentContextRows()
+	if len(contextRows) != 3 || contextRows[0].Selectable || !strings.Contains(contextRows[0].Label, "2026-05-01") {
+		t.Fatalf("chat context rows should start with a date section: %#v", contextRows)
+	}
+	m.setMemberSortMode(sortNewest)
+	members = m.currentGroupMembers()
+	if got := m.items[members[0]].ID; got != "new" {
+		t.Fatalf("newest sort first member = %q, want newest message first", got)
 	}
 }
 
@@ -781,7 +785,8 @@ func TestChatMemberColumnsExposeThreadState(t *testing.T) {
 	if !strings.Contains(header, "rel") {
 		t.Fatalf("chat member header should expose relation column:\n%s", header)
 	}
-	rows := m.memberTableRows(columns, m.currentGroupMembers())
+	m.setMemberSortMode(sortTitle)
+	rows := m.memberTableRows(columns, m.currentContextRows())
 	rendered := stripANSI(strings.Join([]string{
 		renderTableRow(columns, rows[0], 52, lipgloss.NewStyle()),
 		renderTableRow(columns, rows[1], 52, lipgloss.NewStyle()),
@@ -1429,7 +1434,7 @@ func TestGitcrawlKeymapCyclesGroupAndMemberSort(t *testing.T) {
 	}
 	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'m'}})
 	m = updated.(model)
-	if m.menuOpen || m.memberSortMode != sortOldest || !strings.Contains(m.status, "Member sort: oldest") {
+	if m.menuOpen || m.memberSortMode != sortNewest || !strings.Contains(m.status, "Member sort: newest") {
 		t.Fatalf("m should cycle member sort, menu=%v member=%v status=%q", m.menuOpen, m.memberSortMode, m.status)
 	}
 }
@@ -1580,7 +1585,7 @@ func TestChatExplorerGroupsChannelsAndListsMessages(t *testing.T) {
 	}
 	m.focus = focusContext
 	item, ok := m.selectedItem()
-	if !ok || item.Title != "second" {
+	if !ok || item.Title != "first" {
 		t.Fatalf("selected member = %#v ok=%v", item, ok)
 	}
 }
@@ -1678,6 +1683,28 @@ func TestDocumentContextColumnsAvoidEmptyChatAuthorSlot(t *testing.T) {
 	}
 	if strings.Contains(view, " who ") || strings.Contains(view, " author ") {
 		t.Fatalf("document context should not reserve a blank chat author column:\n%s", view)
+	}
+}
+
+func TestDocumentContextStartsWithKindSections(t *testing.T) {
+	m := newModel(Options{
+		Title:  "notcrawl archive",
+		Layout: LayoutDocument,
+		Items: []Item{
+			Row{Kind: "page", ParentID: "Marketing", Title: "Gideon's SF Events", UpdatedAt: "2026-05-01T17:52:33Z"}.ItemForLayout(LayoutDocument),
+			Row{Kind: "database", ParentID: "Marketing", Title: "Launch database", UpdatedAt: "2026-05-01T16:00:00Z"}.ItemForLayout(LayoutDocument),
+		},
+	})
+	if m.memberSortMode != sortKind {
+		t.Fatalf("document member sort = %v, want kind", m.memberSortMode)
+	}
+	rows := m.currentContextRows()
+	if len(rows) != 4 || rows[0].Selectable || rows[0].Label != "DATABASES  (1)" || rows[2].Selectable || rows[2].Label != "PAGES  (1)" {
+		t.Fatalf("document context rows should section databases and pages: %#v", rows)
+	}
+	view := stripANSI(m.View())
+	if !strings.Contains(view, "DATABASES") || !strings.Contains(view, "PAGES") {
+		t.Fatalf("document view missing section rows:\n%s", view)
 	}
 }
 

@@ -683,7 +683,7 @@ func newModel(opts Options) model {
 		sourceLocation: strings.TrimSpace(opts.SourceLocation),
 		layoutPreset:   layout,
 		sortMode:       initialGroupSortMode(layout),
-		memberSortMode: sortNewest,
+		memberSortMode: initialMemberSortMode(layout),
 		compactDetail:  initialCompactDetail(layout),
 		detailView:     viewport.New(1, 1),
 	}
@@ -714,6 +714,17 @@ func initialCompactDetail(layout LayoutPreset) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func initialMemberSortMode(layout LayoutPreset) sortMode {
+	switch layout {
+	case LayoutChat:
+		return sortDefault
+	case LayoutDocument:
+		return sortKind
+	default:
+		return sortDefault
 	}
 }
 
@@ -751,6 +762,12 @@ type tableColumn struct {
 }
 
 type tableRow []string
+
+type contextRow struct {
+	ItemIndex  int
+	Label      string
+	Selectable bool
+}
 
 type archiveLayout struct {
 	rows    rect
@@ -1023,12 +1040,18 @@ func (m *model) selectMemberAt(rect rect, x, y int) (int, bool) {
 		m.clearLastClick()
 		return 0, false
 	}
-	members := m.currentGroupMembers()
+	contextRows := m.currentContextRows()
 	memberOffset := m.contextOffset + row
-	if row < 0 || row >= rowsViewportHeight(rect.h) || memberOffset < 0 || memberOffset >= len(members) {
+	if row < 0 || row >= rowsViewportHeight(rect.h) || memberOffset < 0 || memberOffset >= len(contextRows) {
 		return 0, false
 	}
-	itemIndex := members[memberOffset]
+	contextRow := contextRows[memberOffset]
+	if !contextRow.Selectable {
+		m.status = contextRow.Label
+		m.clearLastClick()
+		return memberOffset, false
+	}
+	itemIndex := contextRow.ItemIndex
 	m.selectItemIndex(itemIndex)
 	m.detailView.GotoTop()
 	m.ensureVisible()
@@ -1903,18 +1926,25 @@ func (m model) renderContextPane(rect rect) string {
 	if !ok {
 		return pane(m.memberPaneTitle(), "", []string{"No group selected."}, rect, focusContext, m.focus, contextPaneAccent)
 	}
-	members := m.currentGroupMembers()
+	contextRows := m.currentContextRows()
 	columns := m.memberColumns(width)
-	rows := m.memberTableRows(columns, members)
-	if len(members) == 0 {
+	rows := m.memberTableRows(columns, contextRows)
+	if len(contextRows) == 0 {
 		rows = []tableRow{messageTableRow(columns, "no rows in group")}
 	}
 	selectedItem := m.currentItemIndex()
 	tableView := renderStyledTable(columns, rows, m.contextOffset, height, width, contextPaneAccent, func(index int) lipgloss.Style {
-		if index < 0 || index >= len(members) {
+		if index < 0 || index >= len(contextRows) {
 			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
 		}
-		return rowStyle(width, members[index] == selectedItem, m.focus == focusContext, itemInactive(m.items[members[index]]))
+		row := contextRows[index]
+		if !row.Selectable {
+			return sectionRowStyle(width)
+		}
+		if row.ItemIndex < 0 || row.ItemIndex >= len(m.items) {
+			return lipgloss.NewStyle().Foreground(lipgloss.Color(archiveTextFG))
+		}
+		return rowStyle(width, row.ItemIndex == selectedItem, m.focus == focusContext, itemInactive(m.items[row.ItemIndex]))
 	})
 	content := lipgloss.JoinVertical(lipgloss.Left, paneTitleWithLabelForWidth(m.memberPaneTitle(), focusContext, m.focus, m.memberPositionLabel()+"  "+group.Title, width), tableView)
 	return paneStyle(focusContext, m.focus, rect.w, rect.h, contextPaneAccent).Render(content)
@@ -2365,7 +2395,7 @@ func (m model) focusedPageSize() int {
 }
 
 func (m model) maxContextOffset() int {
-	return maxInt(0, len(m.currentGroupMembers())-rowsViewportHeight(m.layout().context.h))
+	return maxInt(0, len(m.currentContextRows())-rowsViewportHeight(m.layout().context.h))
 }
 
 func (m *model) applyFilter() {
@@ -2700,12 +2730,12 @@ func (m *model) ensureVisible() {
 	}
 	m.offset = clampInt(m.offset, 0, maxInt(len(m.groups)-1, 0))
 	memberPage := rowsViewportHeight(m.layout().context.h)
-	memberIndex := m.currentMemberOffset()
-	if memberIndex < m.contextOffset {
-		m.contextOffset = memberIndex
+	contextRowIndex := m.currentContextRowOffset()
+	if contextRowIndex < m.contextOffset {
+		m.contextOffset = contextRowIndex
 	}
-	if memberIndex >= m.contextOffset+memberPage {
-		m.contextOffset = memberIndex - memberPage + 1
+	if contextRowIndex >= m.contextOffset+memberPage {
+		m.contextOffset = contextRowIndex - memberPage + 1
 	}
 	m.contextOffset = clampInt(m.contextOffset, 0, m.maxContextOffset())
 }
@@ -2851,11 +2881,97 @@ func (m model) currentGroupMembers() []int {
 	return group.Members
 }
 
+func (m model) currentContextRows() []contextRow {
+	return m.contextRowsForMembers(m.currentGroupMembers())
+}
+
+func (m model) contextRowsForMembers(members []int) []contextRow {
+	if len(members) == 0 {
+		return nil
+	}
+	switch m.layoutPreset {
+	case LayoutChat:
+		if m.memberSortMode == sortDefault || m.memberSortMode == sortNewest || m.memberSortMode == sortOldest {
+			return m.contextRowsWithSections(members, chatDateSectionLabel)
+		}
+	case LayoutDocument:
+		if m.memberSortMode == sortDefault || m.memberSortMode == sortKind {
+			return m.contextRowsWithSections(members, documentKindSectionLabel)
+		}
+	}
+	rows := make([]contextRow, 0, len(members))
+	for _, itemIndex := range members {
+		rows = append(rows, contextRow{ItemIndex: itemIndex, Selectable: true})
+	}
+	return rows
+}
+
+func (m model) contextRowsWithSections(members []int, labelFor func(Item) string) []contextRow {
+	labels := make([]string, len(members))
+	counts := map[string]int{}
+	for index, itemIndex := range members {
+		if itemIndex < 0 || itemIndex >= len(m.items) {
+			continue
+		}
+		label := labelFor(m.items[itemIndex])
+		if strings.TrimSpace(label) == "" {
+			label = "OTHER"
+		}
+		labels[index] = label
+		counts[label]++
+	}
+	rows := make([]contextRow, 0, len(members)+len(counts))
+	previous := ""
+	for index, itemIndex := range members {
+		label := labels[index]
+		if label != "" && label != previous {
+			rows = append(rows, contextRow{Label: fmt.Sprintf("%s  (%d)", label, counts[label])})
+			previous = label
+		}
+		rows = append(rows, contextRow{ItemIndex: itemIndex, Selectable: true})
+	}
+	return rows
+}
+
+func chatDateSectionLabel(item Item) string {
+	if t, ok := itemSortTime(item); ok {
+		return strings.ToUpper(t.UTC().Format("2006-01-02 Mon"))
+	}
+	return "UNDATED"
+}
+
+func documentKindSectionLabel(item Item) string {
+	switch strings.ToLower(strings.TrimSpace(itemKind(item))) {
+	case "database", "collection":
+		return "DATABASES"
+	case "page":
+		return "PAGES"
+	case "block":
+		return "BLOCKS"
+	default:
+		return strings.ToUpper(firstNonEmpty(itemKind(item), "items"))
+	}
+}
+
 func (m model) currentMemberOffset() int {
 	itemIndex := m.currentItemIndex()
 	members := m.currentGroupMembers()
 	for index, member := range members {
 		if member == itemIndex {
+			return index
+		}
+	}
+	return 0
+}
+
+func (m model) currentContextRowOffset() int {
+	itemIndex := m.currentItemIndex()
+	if itemIndex < 0 {
+		return 0
+	}
+	rows := m.currentContextRows()
+	for index, row := range rows {
+		if row.Selectable && row.ItemIndex == itemIndex {
 			return index
 		}
 	}
@@ -3350,13 +3466,17 @@ func (m model) groupTableRows(columns []tableColumn) []tableRow {
 	return rows
 }
 
-func (m model) memberTableRows(columns []tableColumn, members []int) []tableRow {
-	rows := make([]tableRow, 0, len(members))
-	for _, itemIndex := range members {
-		if itemIndex < 0 || itemIndex >= len(m.items) {
+func (m model) memberTableRows(columns []tableColumn, contextRows []contextRow) []tableRow {
+	rows := make([]tableRow, 0, len(contextRows))
+	for _, contextRow := range contextRows {
+		if !contextRow.Selectable {
+			rows = append(rows, messageTableRow(columns, contextRow.Label))
 			continue
 		}
-		item := m.items[itemIndex]
+		if contextRow.ItemIndex < 0 || contextRow.ItemIndex >= len(m.items) {
+			continue
+		}
+		item := m.items[contextRow.ItemIndex]
 		title := displayRowTitle(item.Title)
 		if item.Depth > 0 {
 			title = strings.Repeat("  ", minInt(item.Depth, 6)) + "-> " + title
@@ -5050,6 +5170,13 @@ func rowStyle(width int, selected bool, focused bool, inactive bool) lipgloss.St
 	return style.
 		Foreground(lipgloss.Color(archiveActiveRowFG)).
 		Background(lipgloss.Color(archiveActiveRowBG))
+}
+
+func sectionRowStyle(width int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(width).
+		Foreground(lipgloss.Color(archiveSubtleAccentFG)).
+		Bold(true)
 }
 
 func itemInactive(item Item) bool {
