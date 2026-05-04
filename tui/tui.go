@@ -1929,7 +1929,7 @@ func (m *model) syncDetailViewport() {
 }
 
 func (m *model) configureDetailViewport(rect rect, lines []string) {
-	title := detailModeLabel(m.compactDetail)
+	title := m.detailPaneTitle() + " " + detailModeLabel(m.compactDetail)
 	if focus := paneFocusLabel(m.focus == focusDetail); focus != "" {
 		title += "  " + focus
 	}
@@ -3026,6 +3026,9 @@ func (m model) memberPaneTitle() string {
 func (m model) detailPaneTitle() string {
 	if m.layoutPreset == LayoutChat {
 		return "Thread"
+	}
+	if m.layoutPreset == LayoutDocument {
+		return "Page"
 	}
 	return "Detail"
 }

@@ -1070,7 +1070,7 @@ func TestActionMenuUsesGitcrawlDetailChrome(t *testing.T) {
 		t.Fatalf("action menu status = %q, want Row Actions", m.status)
 	}
 	view := stripANSI(m.View())
-	for _, want := range []string{"Detail full", "Channels Actions", "Row Actions", "group scope", "Open selected URL"} {
+	for _, want := range []string{"Thread full", "Channels Actions", "Row Actions", "group scope", "Open selected URL"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("action menu chrome missing %q:\n%s", want, view)
 		}
@@ -1097,6 +1097,30 @@ func TestActionMenuTitlesFollowFocusedPane(t *testing.T) {
 		if !strings.Contains(view, want) {
 			t.Fatalf("context action menu missing %q:\n%s", want, view)
 		}
+	}
+}
+
+func TestDetailPaneTitleFollowsLayout(t *testing.T) {
+	chat := newModel(Options{
+		Title:  "chat archive",
+		Layout: LayoutChat,
+		Items:  []Item{Row{Kind: "message", Container: "general", Title: "hello"}.ItemForLayout(LayoutChat)},
+	})
+	chat.width = 160
+	chat.height = 24
+	if view := stripANSI(chat.View()); !strings.Contains(view, "Thread full") {
+		t.Fatalf("chat detail pane should be labeled as a thread:\n%s", view)
+	}
+
+	doc := newModel(Options{
+		Title:  "doc archive",
+		Layout: LayoutDocument,
+		Items:  []Item{Row{Kind: "page", ParentID: "workspace", Title: "Roadmap"}.ItemForLayout(LayoutDocument)},
+	})
+	doc.width = 160
+	doc.height = 24
+	if view := stripANSI(doc.View()); !strings.Contains(view, "Page full") {
+		t.Fatalf("document detail pane should be labeled as a page:\n%s", view)
 	}
 }
 
