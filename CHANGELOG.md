@@ -23,7 +23,7 @@
 - Refine the shared TUI toward `gitcrawl` parity with semantic pane titles, compact readable detail by default, bounded document previews, and conversation-window fallback for unthreaded chat messages.
 - Match more of the `gitcrawl` interaction model in the shared TUI: action menus now keep the detail pane chrome, and `s`/`m` cycle group/member sorting while `S` opens the full sort menu.
 - Preserve useful `tui` table columns in 120-column tmux panes so group rows keep date/age and member rows keep time/age/who/title instead of collapsing to title-only lists.
-- Start the shared `tui` in full detail mode like `gitcrawl`, while keeping `d` as the compact/full detail toggle.
+- Start chat and document `tui` detail panes in compact readable mode, while keeping `d` as the compact/full detail toggle for metadata.
 - Trim redundant chat member columns so message panes prioritize time, age, author, and title instead of repeating the selected channel/kind on every row.
 - Default single-channel chat archives to a people/group view so the left pane stays useful for Discord and Slack data.
 - Match `gitcrawl` TUI resize breakpoints: 140+ columns use three panes, 100-139 uses top split plus full-width detail, and narrow terminals stack.
@@ -31,7 +31,7 @@
 - Align shared TUI pane accents, header, footer, and selected-row colors with the current `gitcrawl` terminal browser palette.
 - Match `gitcrawl` help behavior by rendering `?` help inside the detail pane instead of replacing the screen with a menu.
 - Keep medium-width group panes focused on count/date/age/name instead of repeating the group kind on every row.
-- Bring shared TUI detail and sort behavior closer to `gitcrawl`: archives open newest-first, group count headers sort like `cnt*`, selected chat messages render before surrounding conversation context, document previews appear before metadata, and detail fields use `key: value` labels.
+- Bring shared TUI detail and sort behavior closer to `gitcrawl`: archive groups can sort by count or time from headers, selected chat messages render before surrounding conversation context, document previews appear before metadata, and detail fields use `key: value` labels.
 - Keep split-width member tables readable by rendering compact dates instead of truncated ISO timestamps.
 - Open chat and document TUIs on the densest group by default, matching `gitcrawl`'s count-first startup so the middle pane is populated immediately.
 - Prioritize gitcrawl-style footer muscle-memory controls in compact tmux panes before app-specific extras.
