@@ -11,6 +11,9 @@ It is not a provider crawler. Keep Slack, Discord, Notion, GitHub, and other
 provider-specific behavior in the downstream apps unless the abstraction is
 clearly reusable across at least two apps.
 
+Use `docs/boundary.md` as the working ownership map when deciding whether a
+feature belongs in `crawlkit` or a downstream crawl app.
+
 ## Development Rules
 
 - Keep public package nouns stable and small: `config`, `store`, `snapshot`,

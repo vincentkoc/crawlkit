@@ -16,6 +16,7 @@ go get github.com/vincentkoc/crawlkit@latest
 
 Go packages are published by tagging this repository. There is no separate
 package registry step. See `docs/publishing.md` for the release commands.
+See `docs/boundary.md` for the crawlkit-versus-app ownership boundary.
 
 ## Packages
 
