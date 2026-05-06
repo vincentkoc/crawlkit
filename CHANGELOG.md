@@ -2,17 +2,22 @@
 
 ## Unreleased
 
-- Initial `crawlkit` module scaffold.
+- Add GitHub Sponsors funding metadata.
+- Add crawlkit agent guidance for shared-library maintenance.
 - Document downstream adoption status for `gitcrawl`, `discrawl`, `slacrawl`,
   and `notcrawl`, including the app-owned provider/auth/privacy boundary.
-- Add the `control` package to the public package inventory for app metadata,
-  command manifests, status payloads, and database inventory.
 - Document the `crawlkit` versus crawl-app boundary for embeddings, search,
   inference, sync state, snapshots, SQLite, and git mirrors.
 - Add safer `mirror` helpers for origin updates, existing-origin pulls,
   path-scoped commits, and portable SQLite sidecar cleanup.
 - Add `state.ScopedStore` and `state.CursorStore` adapters for legacy sync
   state table shapes used by downstream apps.
+
+## v0.4.0 - 2026-05-05
+
+- Initial `crawlkit` module scaffold.
+- Add the `control` package to the public package inventory for app metadata,
+  command manifests, status payloads, and database inventory.
 - Add `tui`, a shared Bubble Tea terminal archive browser used by the crawl apps for consistent `tui` command behavior.
 - Improve `tui` rows with compact column rendering, pane-specific scrolling, and full-height pane borders.
 - Tune `tui` pane colors and mouse-wheel buffering to better match the `gitcrawl` terminal browser feel.
