@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.4.1 - 2026-05-06
+
 - Add GitHub Sponsors funding metadata.
 - Add crawlkit agent guidance for shared-library maintenance.
 - Document downstream adoption status for `gitcrawl`, `discrawl`, `slacrawl`,
