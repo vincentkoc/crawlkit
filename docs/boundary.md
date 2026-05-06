@@ -81,8 +81,9 @@ parsers, and product-specific ranking in the apps.
 3. Add state adapters instead of one forced schema.
    Keep the current source/entity/value schema as the canonical new shape, but
    add adapters for `scope -> cursor` and `source/entity/cursor/synced_at`
-   stores. This avoids risky migrations while making freshness and stale checks
-   uniform.
+   stores. `state.ScopedStore` and `state.CursorStore` cover those legacy
+   shapes so apps can share freshness and stale checks without risky
+   migrations.
 
 4. Extract embeddings and vector search.
    Start from `discrawl/internal/embed` for provider clients and from
