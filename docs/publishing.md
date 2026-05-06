@@ -14,9 +14,11 @@ go vet ./...
 go test ./...
 ```
 
-3. Test downstream apps against the local checkout through a temporary Go workspace.
-4. Merge `crawlkit` to `main`.
-5. Tag the next semver release from `main`:
+3. Update docs and changelogs in `crawlkit` plus every downstream app branch
+   that consumes the release.
+4. Test downstream apps against the local checkout through a temporary Go workspace.
+5. Merge `crawlkit` to `main`.
+6. Tag the next semver release from `main`:
 
 ```bash
 git tag -s v0.4.0
@@ -24,14 +26,14 @@ git push origin main
 git push origin v0.4.0
 ```
 
-6. Prime and verify module proxy visibility:
+7. Prime and verify module proxy visibility:
 
 ```bash
 GOPROXY=https://proxy.golang.org go list -m github.com/vincentkoc/crawlkit@v0.4.0
 go list -m github.com/vincentkoc/crawlkit@v0.4.0
 ```
 
-7. Bump downstream apps to the new tag and commit their `go.mod`/`go.sum` updates:
+8. Bump downstream apps to the new tag and commit their `go.mod`/`go.sum` updates:
 
 ```bash
 go get github.com/vincentkoc/crawlkit@v0.4.0

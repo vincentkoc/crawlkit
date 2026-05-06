@@ -3,6 +3,10 @@
 ## Unreleased
 
 - Initial `crawlkit` module scaffold.
+- Document downstream adoption status for `gitcrawl`, `discrawl`, `slacrawl`,
+  and `notcrawl`, including the app-owned provider/auth/privacy boundary.
+- Add the `control` package to the public package inventory for app metadata,
+  command manifests, status payloads, and database inventory.
 - Document the `crawlkit` versus crawl-app boundary for embeddings, search,
   inference, sync state, snapshots, SQLite, and git mirrors.
 - Add safer `mirror` helpers for origin updates, existing-origin pulls,

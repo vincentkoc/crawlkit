@@ -9,6 +9,15 @@ neutral, reusable by at least two apps, and can preserve the app's existing
 database and CLI contracts. Keep provider schemas, auth, API clients, cache
 parsers, and product-specific ranking in the apps.
 
+## adoption status
+
+| app | branch | crawlkit usage | still app-owned |
+| --- | --- | --- | --- |
+| `gitcrawl` | `main` | config paths, SQLite openers, command/control metadata, status inventory, and the reference TUI/control contract | GitHub API sync, `gh` shim behavior, embeddings, clustering, inference, portable-store schema pruning, and the richer cluster TUI |
+| `discrawl` | `main` | config/status/control, snapshot packing/import, git mirror mechanics, sync-state adapters, output helpers, and shared chat TUI | Discord bot API, desktop wiretap parsing, DM privacy filters, Discord schema, FTS/ranking, embeddings, and analytics |
+| `slacrawl` | `feat/use-crawlkit` | config/status/control, snapshot packing/import, git mirror mechanics, state helpers, output helpers, and shared chat TUI | Slack API/Desktop parsing, token scopes, Slack schema, Slack text normalization, channel/thread semantics, and analytics |
+| `notcrawl` | `feat/use-crawlkit` | config/status/control, snapshot packing/import, git mirror mechanics, output helpers, and shared document TUI | Notion API/Desktop parsing, Markdown rendering, page/comment/database schema, Notion FTS body construction, and data-source compatibility |
+
 ## owns
 
 `crawlkit` should own these surfaces:

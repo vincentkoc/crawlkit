@@ -5,8 +5,8 @@ Shared Go infrastructure for local-first crawler archives.
 `crawlkit` is not a universal Slack, Discord, Notion, or GitHub crawler. It is
 the reusable foundation beneath those tools: SQLite hygiene, TOML config
 defaults, portable JSONL/Gzip packing, git-backed snapshot sharing, sync state,
-CLI output helpers, a shared terminal explorer, and safe desktop-cache snapshot
-utilities.
+CLI output helpers, control/status metadata, a shared terminal explorer, and
+safe desktop-cache snapshot utilities.
 
 ## Install
 
@@ -26,8 +26,18 @@ See `docs/boundary.md` for the crawlkit-versus-app ownership boundary.
 - `mirror`: clone/init/pull/commit/push helpers for private snapshot repos.
 - `state`: generic crawler cursor and freshness records.
 - `output`: text/json/log output helpers.
+- `control`: crawl app metadata, command manifests, status payloads, and
+  database inventory for launchers and automation.
 - `tui`: shared terminal archive explorer with gitcrawl-style responsive panes, entity/member/detail lanes, compact sortable headers, mouse selection, floating right-click actions, sorting/filtering, and local/remote source status.
 - `cache`: safe read-only local cache snapshot helpers.
+
+## Downstream apps
+
+- `gitcrawl` and `discrawl` consume `crawlkit` on `main`.
+- `slacrawl` and `notcrawl` consume `crawlkit` on their `feat/use-crawlkit`
+  integration branches until those app rewires are merged.
+- The apps keep provider schemas, auth, desktop/API parsing, privacy filters,
+  and user-facing CLI contracts. `crawlkit` owns only the reusable mechanics.
 
 ## Safety
 
