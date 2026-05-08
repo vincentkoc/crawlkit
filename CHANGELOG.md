@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.4.2 - 2026-05-08
+
 - Add snapshot file fingerprints and an incremental import planner/executor so downstream apps can import changed JSONL/Gzip shards without deleting every table.
 - Move the module path to `github.com/openclaw/crawlkit`.
 - Bump routine Go module dependencies.
