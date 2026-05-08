@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add reusable `embed` providers for OpenAI, OpenAI-compatible endpoints,
+  Ollama, and llama.cpp, including probe diagnostics and rate-limit errors.
+- Add reusable `vector` helpers for float32 blobs, dimension validation,
+  cosine similarity, top-k sorting, and reciprocal-rank fusion.
+
 ## v0.4.2 - 2026-05-08
 
 - Add snapshot file fingerprints and an incremental import planner/executor so downstream apps can import changed JSONL/Gzip shards without deleting every table.

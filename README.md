@@ -25,6 +25,8 @@ See `docs/boundary.md` for the crawlkit-versus-app ownership boundary.
 - `snapshot`: `manifest.json` plus JSONL/Gzip table snapshot export, file fingerprints, full import, and planned incremental shard import.
 - `mirror`: clone/init/pull/commit/push helpers for private snapshot repos.
 - `state`: generic crawler cursor and freshness records.
+- `embed`: reusable OpenAI-compatible, Ollama, and llama.cpp embedding providers plus local probe diagnostics.
+- `vector`: float32 vector encoding, dimension validation, cosine scoring, top-k helpers, and reciprocal-rank fusion.
 - `output`: text/json/log output helpers.
 - `control`: crawl app metadata, command manifests, status payloads, and
   database inventory for launchers and automation.
