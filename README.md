@@ -1,4 +1,4 @@
-# crawlkit
+# 🧱 crawlkit
 
 Shared Go infrastructure for local-first crawler archives.
 
