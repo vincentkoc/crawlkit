@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.5.3 - 2026-05-17
+
 - Add OpenAI-compatible embedding dimensions, raw API-key injection, user-agent
   forwarding, response headers on HTTP errors, and float64 vectors for
   downstream stores that need exact JSON embedding values.
